@@ -239,7 +239,7 @@ async function loadState() {
 
 function route() {
   const requested = (location.hash || "#create").slice(1);
-  const view = ["create", "library", "settings"].includes(requested) ? requested : "create";
+  const view = ["create", "library", "settings", "about"].includes(requested) ? requested : "create";
   document.querySelectorAll(".view").forEach((node) => node.classList.add("hidden"));
   $(`view-${view}`).classList.remove("hidden");
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -249,6 +249,7 @@ function route() {
     create: ["WORKSPACE", "CLIP STUDIO"],
     library: ["WORKSPACE", "PUSTAKA"],
     settings: ["WORKSPACE", "PENGATURAN"],
+    about: ["WORKSPACE", "TENTANG"],
   };
   const [top, bottom] = crumbs[view];
   $("crumb").innerHTML = `<span>${top}</span><i>/</i><b>${bottom}</b>`;

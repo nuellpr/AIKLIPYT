@@ -1,5 +1,9 @@
 # AIKLIPYT
 
+<p align="center">
+  <img src="web/assets/logo.png" alt="Logo AIKLIPYT" width="112">
+</p>
+
 Reimplementasi fungsional dari **YT Short Clipper v2** (v2.0.7-beta): tempel URL
 YouTube, AI memilih momen terbaik, lalu ffmpeg merender klip vertikal 9:16
 dengan caption per kata, hook, dan watermark.

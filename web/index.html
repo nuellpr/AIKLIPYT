@@ -31,6 +31,10 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
         <span>Pengaturan</span>
       </button>
+      <button class="tab" data-view="about">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8h.01"/></svg>
+        <span>Tentang</span>
+      </button>
     </nav>
 
     <div class="engine-card">
@@ -390,10 +394,63 @@
           </section>
         </form>
       </section>
+
+      <!-- ABOUT -->
+      <section id="view-about" class="view hidden">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">TENTANG APLIKASI</p>
+            <h1>AIKLIPYT</h1>
+          </div>
+          <span class="tag">v1.0.0</span>
+        </div>
+
+        <div class="about-grid">
+          <section class="panel about-hero">
+            <img class="about-logo" src="/assets/logo.png" alt="Logo AIKLIPYT" width="112" height="112">
+            <div>
+              <p class="eyebrow">CLIP STUDIO · 100% LOKAL</p>
+              <h2>Potong momennya.<br>Jaga rasanya.</h2>
+              <p>AIKLIPYT adalah studio klip otomatis yang berjalan di komputermu sendiri.
+                Tempel URL YouTube, biarkan AI membaca transkrip dan memilih momen terbaik,
+                lalu render klip vertikal 9:16 dengan caption per kata, hook, dan watermark.
+                Tidak ada akun, tidak ada telemetri, dan video tidak diunggah ke server mana pun.</p>
+              <div class="about-tags">
+                <span>PYTHON</span><span>FFMPEG</span><span>YT-DLP</span><span>OPENAI-COMPATIBLE</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Detail</h2><span class="tag">edisi lokal</span></div>
+            <dl class="about-meta">
+              <div><dt>Versi</dt><dd>1.0.0</dd></div>
+              <div><dt>Mesin</dt><dd>Python 3.11+</dd></div>
+              <div><dt>Render</dt><dd>FFmpeg 8.0.1</dd></div>
+              <div><dt>Subtitle</dt><dd>yt-dlp</dd></div>
+              <div><dt>Data</dt><dd>Tersimpan lokal</dd></div>
+            </dl>
+            <div class="about-links">
+              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT" target="_blank" rel="noreferrer">GitHub</a>
+              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.0" target="_blank" rel="noreferrer">Rilis v1.0.0</a>
+              <a class="btn ghost small" href="https://www.figma.com/design/P83HXlUX9HexU1lZJeWkRa" target="_blank" rel="noreferrer">Desain Figma</a>
+            </div>
+          </section>
+
+          <section class="panel about-wide">
+            <div class="panel-head"><h2>Privasi &amp; kredit</h2><span class="tag">lokal</span></div>
+            <p class="about-copy">API key disimpan terenkripsi DPAPI. Cookies hanya disimpan untuk domain YouTube.
+              Semua proses video berjalan lokal memakai FFmpeg, yt-dlp, dan penyedia AI yang kamu pilih.
+              Logo dan antarmuka AIKLIPYT dibuat khusus untuk proyek ini.</p>
+            <p class="about-copy small">AIKLIPYT adalah reimplementasi fungsional bersih, bukan salinan kode atau aset aplikasi komersial.
+              Skor klip adalah estimasi AI, bukan jaminan performa di platform.</p>
+          </section>
+        </div>
+      </section>
     </main>
 
     <footer>
-      <span>AIKLIPYT v1 · lokal, tanpa telemetri</span>
+      <span>AIKLIPYT v1.0.0 · lokal, tanpa telemetri</span>
       <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
     </footer>
   </div>
