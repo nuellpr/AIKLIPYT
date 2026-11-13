@@ -115,6 +115,12 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"AIKLIPYT/{VERSION}"
     protocol_version = "HTTP/1.1"
 
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
+
     def log_message(self, fmt, *args):  # noqa: A003 - stdlib signature
         pass
 
