@@ -206,7 +206,10 @@ class Handler(BaseHTTPRequestHandler):
                 chunk = handle.read(min(65536, remaining))
                 if not chunk:
                     break
-                self.wfile.write(chunk)
+                try:
+                    self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                    return
                 remaining -= len(chunk)
 
     # ---------- HTTP ----------
