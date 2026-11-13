@@ -9,6 +9,8 @@ analisis REA. Ini **bukan salinan** kode/aset aplikasi asli: source asli tidak
 tersedia, dan menyalin aset komersial bukan hal yang tepat. Yang sama adalah
 alur kerjanya; implementasinya bersih dan terbuka.
 
+Riwayat rilis ada di [CHANGELOG.md](CHANGELOG.md).
+
 ## Kenapa Python, bukan Tauri?
 
 Mesin ini tidak punya Rust/cargo, jadi build Tauri tidak mungkin tanpa
