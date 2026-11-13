@@ -18,6 +18,7 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Caption,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,{margin},{margin},{bottom_margin},1
+Style: CaptionBg,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00031410,&H80000000,-1,0,0,0,100,100,0,0,3,18,0,2,{margin},{margin},{bottom_margin},1
 Style: Hook,Arial Black,{hook_size},{hook_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,8,{margin},{margin},{top_margin},1
 Style: Credit,Arial,{credit_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,3,{margin},{margin},{margin},1
 
@@ -26,7 +27,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 _WHITE = r"{\c&H00FFFFFF&}"
-_CAPTION_STYLES = ("highlight", "box", "pop")
+_CAPTION_STYLES = (
+    "highlight",
+    "box",
+    "pop",
+    "smart-bg-focus",
+    "box-highlight",
+    "word-focus",
+    "underline-focus",
+    "outline-focus",
+)
 
 
 def _ass_color(value: str, fallback: str = "#FFD700") -> str:
@@ -112,28 +122,50 @@ def build_ass(
         )
 
     for group in _groups(words):
+        event_style = "CaptionBg" if caption_style == "smart-bg-focus" else "Caption"
         for index, word in enumerate(group):
             start = word.start
             end = group[index + 1].start if index + 1 < len(group) else word.end + 0.12
             end = max(start + 0.06, end)
+            if caption_style == "box-highlight":
+                token = ass_escape(word.word)
+                if token:
+                    text = f"{{\\c&H000000&\\3c{accent}\\bord14\\shad0}}{token}{{\\rCaption}}"
+                    events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Caption,,0,0,0,,{text}")
+                continue
             parts = []
             for other_index, other in enumerate(group):
                 token = ass_escape(other.word)
                 if not token:
                     continue
+                if caption_style == "underline-focus":
+                    token = token.upper()
                 if other_index == index:
                     if caption_style == "box":
                         parts.append(f"{{\\c&H000000&\\3c{accent}\\bord10}}" + token + r"{\rCaption}")
                     elif caption_style == "pop":
                         parts.append(_color_tag(accent) + r"{\fscx115\fscy115}" + token + r"{\rCaption}")
+                    elif caption_style == "smart-bg-focus":
+                        parts.append(_color_tag(accent) + token + r"{\rCaptionBg}")
+                    elif caption_style == "word-focus":
+                        parts.append(r"{\alpha&H00&}" + _color_tag(accent) + r"{\fscx110\fscy110}" + token + r"{\rCaption}")
+                    elif caption_style == "underline-focus":
+                        parts.append(_color_tag(accent) + r"{\u1}" + token + r"{\rCaption}")
+                    elif caption_style == "outline-focus":
+                        parts.append(f"{{\\1a&H00&\\c{accent}\\3c{accent}\\bord3\\shad0}}" + token + r"{\rCaption}")
                     else:
                         parts.append(_color_tag(accent) + token + _WHITE)
                 else:
-                    parts.append(token)
+                    if caption_style == "word-focus":
+                        parts.append(r"{\alpha&H80&}" + token + r"{\rCaption}")
+                    elif caption_style == "outline-focus":
+                        parts.append(r"{\1a&HFF&\3c&HFFFFFF&\bord3\shad0}" + token + r"{\rCaption}")
+                    else:
+                        parts.append(token)
             if not parts:
                 continue
             text = " ".join(parts)
-            events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Caption,,0,0,0,,{text}")
+            events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{event_style},,0,0,0,,{text}")
 
     if credit.strip():
         events.append(

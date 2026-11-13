@@ -102,6 +102,15 @@ Caption memakai timing kata asli dari track auto `*-orig`. Tiga gaya karaoke:
 | `highlight` | Kata aktif berwarna aksen, kata lain putih |
 | `box` | Kata aktif hitam dengan garis tebal warna aksen |
 | `pop` | Kata aktif berwarna aksen dan sedikit membesar |
+| `smart-bg-focus` | Kotak gelap di belakang teks, kata aktif berwarna aksen |
+| `box-highlight` | Hanya kata aktif, dalam kotak warna aksen |
+| `word-focus` | Kata lain meredup, kata aktif berwarna aksen dan membesar |
+| `underline-focus` | Teks kapital, kata aktif bergaris bawah warna aksen |
+| `outline-focus` | Teks outline, kata aktif terisi warna aksen |
+
+Lima gaya terakhir diadaptasi dari referensi gaya subtitle
+[Wayin](https://wayin.ai/id/api-docs/subtitles-style/). Karena dirender lewat
+ASS/libass, hasilnya mendekati preview web, bukan identik.
 
 Warna aksen diatur di **Pengaturan → Klip → Warna caption** (default kuning
 `#FFD700`). Hook memakai warna yang sama.

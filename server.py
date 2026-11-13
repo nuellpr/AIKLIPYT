@@ -96,7 +96,16 @@ def _apply_settings(body: dict) -> dict:
     config["clip"]["padding"] = max(0.0, min(5.0, config["clip"]["padding"]))
     color = str(config["render"].get("captionColor") or "").strip()
     config["render"]["captionColor"] = color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else "#FFD700"
-    if config["render"].get("captionStyle") not in ("highlight", "box", "pop"):
+    if config["render"].get("captionStyle") not in (
+        "highlight",
+        "box",
+        "pop",
+        "smart-bg-focus",
+        "box-highlight",
+        "word-focus",
+        "underline-focus",
+        "outline-focus",
+    ):
         config["render"]["captionStyle"] = "highlight"
     return save(config)
 
