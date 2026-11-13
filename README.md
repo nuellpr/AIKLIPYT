@@ -39,31 +39,35 @@ sama, tanpa build, dan mudah diubah. UI berjalan di browser pada
 ## Kebutuhan
 
 - Windows 10/11, Python 3.11+ (dites di 3.14.6).
-- **ffmpeg** — otomatis dicari di:
-  1. `AIKLIPYT\assets\ffmpeg\ffmpeg.exe`
-  2. folder induk `D:\AICLIPYTSHORT\ffmpeg\ffmpeg.exe`
-  3. `PATH`
-- **deno** (opsional, disarankan) — membantu yt-dlp melewati tantangan JS
-  YouTube. Dicari di `AIKLIPYT\bin\deno.exe`, folder induk `bin\deno.exe`,
-  atau `PATH`.
+- **ffmpeg** — sudah disertakan di paket ZIP rilis pada `assets\ffmpeg\ffmpeg.exe`.
+  Kalau memakai source dari Git, taruh `ffmpeg.exe` di folder itu atau install
+  ffmpeg dan pastikan ada di `PATH`.
+- **deno** (disertakan di ZIP, opsional tetapi disarankan) — membantu yt-dlp
+  melewati tantangan JS YouTube. Letakkan di `bin\deno.exe` atau `PATH`.
+- Koneksi internet saat pertama kali menjalankan `run.bat` untuk mengunduh
+  yt-dlp ke `.venv`.
 
-Tidak perlu install ffmpeg kalau folder ini tetap di dalam `D:\AICLIPYTSHORT`
-selama `ffmpeg\ffmpeg.exe` dan `bin\deno.exe` ada.
+Ekstrak ZIP ke folder biasa (misalnya `Dokumen\AIKLIPYT`), bukan ke
+`Program Files`, supaya `.venv` dan `data\` bisa ditulis. Semua path di app
+bersifat relatif terhadap folder hasil ekstrak.
 
 ## Mulai
 
-1. Klik dua kali `run.bat`. Pertama kali akan membuat `.venv` dan meng-install
+1. Unduh ZIP Windows dari halaman **Releases**
+   ([github.com/nuellpr/AIKLIPYT/releases](https://github.com/nuellpr/AIKLIPYT/releases)),
+   lalu ekstrak. ZIP sudah berisi `ffmpeg.exe` dan `deno.exe`.
+2. Klik dua kali `run.bat`. Pertama kali akan membuat `.venv` dan meng-install
    yt-dlp.
-2. Buka **Pengaturan** → pilih Provider (Google Gemini, OpenAI, Groq,
+3. Buka **Pengaturan** → pilih Provider (Google Gemini, OpenAI, Groq,
    OpenRouter, vLLM lokal, atau **Custom**), lalu isi API key dan model.
    Contoh: `https://api.openai.com/v1` + `gpt-4.1-mini`. Untuk Google, pilih
    preset Gemini (endpoint OpenAI-compatible AI Studio) dan pakai API key dari
    AI Studio.
-3. (Opsional) **Cookies**: ekspor cookies khusus `youtube.com` dengan ekstensi
+4. (Opsional) **Cookies**: ekspor cookies khusus `youtube.com` dengan ekstensi
    "Get cookies.txt LOCALLY", tempel, simpan. Tanpa cookies, video publik
    biasanya tetap jalan.
-4. Tab **Buat** → tempel URL → **Cari highlight**.
-5. Pilih klip → **Render klip** → lihat di **Pustaka**.
+5. Tab **Buat** → tempel URL → **Cari highlight**.
+6. Pilih klip → **Render klip** → lihat di **Pustaka**.
 
 Semua data ada di `data/`:
 
