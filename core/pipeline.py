@@ -108,32 +108,63 @@ def _highlight_worker(job: dict, params: dict) -> None:
         _log(job, f"Transcript: {len(words)} words, {len(text)} chars")
 
         _update(job, message="AI is finding highlights (this can take a minute)", progress=30)
+        direction = params.get("direction", "")
+        output_language = params.get("outputLanguage") or config.get("outputLanguage", "auto")
+        min_seconds = float(config["clip"]["minSeconds"])
+        max_seconds = float(config["clip"]["maxSeconds"])
+        requested = int(params["numClips"])
         messages = build_messages(
             info,
             text,
-            int(params["numClips"]),
-            params.get("direction", ""),
-            params.get("outputLanguage") or config.get("outputLanguage", "auto"),
-            float(config["clip"]["minSeconds"]),
-            float(config["clip"]["maxSeconds"]),
+            requested,
+            direction,
+            output_language,
+            min_seconds,
+            max_seconds,
         )
         from .secret import api_key
 
-        content, usage = chat(
-            config["ai"]["baseUrl"],
-            api_key(config),
-            config["ai"]["model"],
-            messages,
-        )
+        base_url = config["ai"]["baseUrl"]
+        key = api_key(config)
+        model = config["ai"]["model"]
+        content, usage = chat(base_url, key, model, messages)
         _log(job, f"AI responded ({len(content)} chars)")
         items = extract_clips(content)
-        highlights = select_clips(
-            items,
-            int(params["numClips"]),
-            duration,
-            float(config["clip"]["minSeconds"]),
-            float(config["clip"]["maxSeconds"]),
-        )
+        highlights = select_clips(items, requested, duration, min_seconds, max_seconds)
+        attempts = 0
+        while len(highlights) < requested and attempts < 2:
+            missing = requested - len(highlights)
+            _log(job, f"AI returned {len(highlights)}/{requested} valid clips; requesting {missing} more")
+            _update(job, message=f"AI is finding {missing} more highlights", progress=35 + attempts * 5)
+            try:
+                extra_content, _extra_usage = chat(
+                    base_url,
+                    key,
+                    model,
+                    build_messages(
+                        info,
+                        text,
+                        missing,
+                        direction,
+                        output_language,
+                        min_seconds,
+                        max_seconds,
+                        exclude=highlights,
+                    ),
+                )
+            except AIError as exc:
+                _log(job, f"Follow-up AI call failed: {exc}")
+                break
+            extra_items = extract_clips(extra_content)
+            if not extra_items:
+                break
+            merged = select_clips(items + extra_items, requested, duration, min_seconds, max_seconds)
+            if len(merged) <= len(highlights):
+                break
+            items = items + extra_items
+            highlights = merged
+            attempts += 1
+        _log(job, f"Highlights selected: {len(highlights)}/{requested}")
         if not highlights:
             raise JobError(
                 "AI tidak menghasilkan klip yang valid. Coba naikkan durasi maksimum atau ganti model."
@@ -152,6 +183,8 @@ def _highlight_worker(job: dict, params: dict) -> None:
                 "channel": result["channel"],
                 "highlights": highlights,
                 "clipCount": len(highlights),
+                "requested": requested,
+                "short": len(highlights) < requested,
             },
         )
         _log(job, f"Saved session {result['id']} with {len(highlights)} highlights")

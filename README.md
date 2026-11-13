@@ -95,6 +95,11 @@ dimensi terkuat dan terlemah. Highlight diurutkan dari skor tertinggi, dan tombo
 **Pilih skor ≥ 7** memilih klip yang layak dirender. Skor tinggi tetap belum
 tentu performanya tinggi di YouTube/TikTok.
 
+AI diminta mengembalikan **tepat** sejumlah klip yang diminta. Kalau hasilnya
+kurang, AIKLIPYT meminta tambahan hingga dua kali dengan rentang klip yang sudah
+dipilih dikecualikan. Kalau masih kurang, UI menampilkan peringatan
+"AI hanya menemukan X dari Y momen".
+
 Caption memakai timing kata asli dari track auto `*-orig`. Tiga gaya karaoke:
 
 | Gaya | Tampilan |

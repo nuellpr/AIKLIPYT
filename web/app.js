@@ -322,10 +322,11 @@ async function findHighlights() {
   $("previewHook").textContent = "Ini yang tidak dibicarakan.";
   $("previewMeta").textContent = "AI PICK · —:—";
   showJob("Mencari highlight");
+  const requested = Math.max(1, Math.min(20, Number($("numClips").value) || 5));
   try {
     const { jobId } = await api("/api/highlights", "POST", {
       url,
-      numClips: Number($("numClips").value) || 5,
+      numClips: requested,
       subtitleLanguage: $("subtitleLanguage").value,
       outputLanguage: $("outputLanguage").value,
       direction: $("direction").value.trim(),
@@ -344,7 +345,14 @@ async function findHighlights() {
       renderHighlights();
       $("resultsPanel").classList.remove("hidden");
       $("resultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
-      toast(`${state.highlights.length} highlight · ${state.selected.size} direkomendasikan untuk dirender`);
+      const wanted = Number(job.result?.requested) || requested;
+      const short = state.highlights.length < wanted;
+      toast(
+        short
+          ? `AI hanya menemukan ${state.highlights.length} dari ${wanted} momen`
+          : `${state.highlights.length} highlight — ${state.selected.size} direkomendasikan untuk dirender`,
+        short,
+      );
     }, () => setBusy(button, false));
   } catch (error) {
     setBusy(button, false);

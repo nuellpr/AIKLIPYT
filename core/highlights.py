@@ -229,6 +229,7 @@ def build_messages(
     output_language: str,
     min_seconds: float,
     max_seconds: float,
+    exclude: list[dict] | None = None,
 ) -> list[dict]:
     language = LANGUAGES.get(output_language, output_language or LANGUAGES["auto"])
     system = (
@@ -236,6 +237,17 @@ def build_messages(
         "work as vertical clips and you never invent timestamps. Reply with JSON only."
     )
     direction = (direction or "").strip()
+    excluded = ""
+    if exclude:
+        ranges = []
+        for clip in exclude:
+            start = int(float(clip.get("start") or 0))
+            end = int(float(clip.get("end") or 0))
+            title = str(clip.get("title") or "").strip()
+            label = f"{start // 60}:{start % 60:02d}-{end // 60}:{end % 60:02d}"
+            ranges.append(f"- {label}" + (f" {title}" if title else ""))
+        if ranges:
+            excluded = "EXISTING CLIPS (do not reuse or overlap these)\n" + "\n".join(ranges) + "\n\n"
     user = f"""VIDEO
 Title: {info.get('title') or 'Unknown'}
 Channel: {info.get('channel') or info.get('uploader') or 'Unknown'}
@@ -244,8 +256,9 @@ Duration: {int(info.get('duration') or 0)} seconds
 TRANSCRIPT (timestamps are mm:ss)
 {transcript}
 
-TASK
-Choose up to {num_clips} moments that can stand alone as a vertical short.
+{excluded}TASK
+Return exactly {num_clips} distinct moments that can stand alone as a vertical short.
+If the transcript cannot support {num_clips} distinct non-overlapping moments, return fewer rather than invent timestamps.
 For each moment return start_time and end_time in seconds from the source video.
 
 RULES

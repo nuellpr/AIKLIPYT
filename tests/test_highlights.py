@@ -175,5 +175,30 @@ class ChatTests(unittest.TestCase):
             chat("http://127.0.0.1:9/v1", "", "m", [])
 
 
+class ExactCountPromptTests(unittest.TestCase):
+    def test_prompt_requests_exact_count_and_excludes(self):
+        messages = build_messages(
+            {"title": "Demo", "duration": 600},
+            "transcript",
+            5,
+            "",
+            "auto",
+            20,
+            120,
+            exclude=[{"start": 60, "end": 120, "title": "First"}],
+        )
+        text = messages[1]["content"]
+        self.assertIn("Return exactly 5", text)
+        self.assertIn("EXISTING CLIPS", text)
+        self.assertIn("1:00-2:00 First", text)
+        self.assertNotIn("Choose up to 5", text)
+
+    def test_two_batches_fill_requested_count(self):
+        first = [{"start": 0, "end": 30, "virality_score": 9}]
+        extra = [{"start": 100, "end": 130, "virality_score": 8}]
+        clips = select_clips(first + extra, 2, 600, 20, 120)
+        self.assertEqual(len(clips), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
