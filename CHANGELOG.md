@@ -2,6 +2,21 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.1] - 2026-11-13
+
+### Added
+- Enam gaya caption ala Wayin: `smart-bg-focus`, `box-highlight`, `word-focus`, `underline-focus`, `outline-focus`, dan `temp-0` (total 9 gaya caption).
+- Halaman **Tentang** dengan logo, deskripsi, metadata, dan tautan GitHub/rilis/Figma.
+- Logo aplikasi di README, sidebar, dan favicon.
+
+### Changed
+- Paket rilis Windows menyertakan ffmpeg 8.0.1 dan deno 2.8.1, plus `THIRD_PARTY_NOTICES.md` dan lisensi.
+- README kini portabel (tanpa path lokal) dan menjelaskan paket ZIP.
+
+### Fixed
+- Skor highlight memakai empat dimensi berbobot dan menampilkan alasan; tersedia `Pilih skor >= 7`.
+- Pemilihan encoder hardware memakai probe encode nyata (NVENC/QSV/AMF) sebelum fallback libx264.
+
 ## [1.0.0] - 2026-11-13
 
 Rilis pertama AIKLIPYT: studio klip YouTube lokal dengan AI highlight, caption
