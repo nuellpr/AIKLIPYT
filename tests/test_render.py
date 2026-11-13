@@ -62,6 +62,11 @@ class AssTests(unittest.TestCase):
         outline = build_ass(words, caption_style="outline-focus")
         self.assertIn(r"\1a&HFF&", outline)
         self.assertIn(r"\bord3", outline)
+        temp0 = build_ass(words, caption_style="temp-0")
+        self.assertIn("HALO", temp0)
+        self.assertIn("DUNIA", temp0)
+        self.assertIn(r"\shad0", temp0)
+        self.assertIn(r"\3c&H000000&", temp0)
 
     def test_time_format(self):
         self.assertEqual(ass_time(0), "0:00:00.00")
@@ -120,7 +125,7 @@ class FfmpegRenderTests(unittest.TestCase):
                 timeout=120,
             )
             words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
-            for style in ("smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus"):
+            for style in ("smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus", "temp-0"):
                 output = work / f"out_{style}.mp4"
                 render_clip(
                     source,

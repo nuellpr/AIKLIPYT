@@ -36,6 +36,7 @@ _CAPTION_STYLES = (
     "word-focus",
     "underline-focus",
     "outline-focus",
+    "temp-0",
 )
 
 
@@ -138,7 +139,7 @@ def build_ass(
                 token = ass_escape(other.word)
                 if not token:
                     continue
-                if caption_style == "underline-focus":
+                if caption_style in ("underline-focus", "temp-0"):
                     token = token.upper()
                 if other_index == index:
                     if caption_style == "box":
@@ -153,6 +154,8 @@ def build_ass(
                         parts.append(_color_tag(accent) + r"{\u1}" + token + r"{\rCaption}")
                     elif caption_style == "outline-focus":
                         parts.append(f"{{\\1a&H00&\\c{accent}\\3c{accent}\\bord3\\shad0}}" + token + r"{\rCaption}")
+                    elif caption_style == "temp-0":
+                        parts.append(f"{{\\shad0\\c{accent}\\3c&H000000&\\bord4}}" + token + r"{\rCaption}")
                     else:
                         parts.append(_color_tag(accent) + token + _WHITE)
                 else:
@@ -160,6 +163,8 @@ def build_ass(
                         parts.append(r"{\alpha&H80&}" + token + r"{\rCaption}")
                     elif caption_style == "outline-focus":
                         parts.append(r"{\1a&HFF&\3c&HFFFFFF&\bord3\shad0}" + token + r"{\rCaption}")
+                    elif caption_style == "temp-0":
+                        parts.append(r"{\shad0}" + token)
                     else:
                         parts.append(token)
             if not parts:

@@ -107,8 +107,9 @@ Caption memakai timing kata asli dari track auto `*-orig`. Tiga gaya karaoke:
 | `word-focus` | Kata lain meredup, kata aktif berwarna aksen dan membesar |
 | `underline-focus` | Teks kapital, kata aktif bergaris bawah warna aksen |
 | `outline-focus` | Teks outline, kata aktif terisi warna aksen |
+| `temp-0` | Huruf kapital, teks putih outline hitam, kata aktif terisi aksen |
 
-Lima gaya terakhir diadaptasi dari referensi gaya subtitle
+Enam gaya terakhir diadaptasi dari referensi gaya subtitle
 [Wayin](https://wayin.ai/id/api-docs/subtitles-style/). Karena dirender lewat
 ASS/libass, hasilnya mendekati preview web, bukan identik.
 

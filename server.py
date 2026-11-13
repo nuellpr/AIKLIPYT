@@ -105,6 +105,7 @@ def _apply_settings(body: dict) -> dict:
         "word-focus",
         "underline-focus",
         "outline-focus",
+        "temp-0",
     ):
         config["render"]["captionStyle"] = "highlight"
     return save(config)
