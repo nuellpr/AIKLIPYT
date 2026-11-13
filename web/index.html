@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AIKLIPYT — Clip Studio</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <link rel="icon" type="image/png" href="/assets/logo.png">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#create">
+      <img class="brand-mark" src="/assets/logo.svg" alt="" width="34" height="34">
+      <span class="brand-text">
+        <strong>AIKLIPYT</strong>
+        <small>CLIP STUDIO</small>
+      </span>
+    </a>
+
+    <nav class="tabs" aria-label="Navigasi utama">
+      <button class="tab is-active" data-view="create">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3m0 12v3M4.2 4.2l2.1 2.1m11.4 11.4 2.1 2.1M3 12h3m12 0h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg>
+        <span>Buat</span>
+      </button>
+      <button class="tab" data-view="library">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg>
+        <span>Pustaka</span>
+      </button>
+      <button class="tab" data-view="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10m4 0h2M4 17h4m4 0h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+        <span>Pengaturan</span>
+      </button>
+    </nav>
+
+    <div class="engine-card">
+      <div class="engine-head"><span>ENGINE</span><span class="engine-live">LOKAL</span></div>
+      <div class="engine-row"><span class="dot" id="engineFfmpegDot"></span><span>ffmpeg</span><b id="engineFfmpeg">memuat…</b></div>
+      <div class="engine-row"><span class="dot" id="engineDenoDot"></span><span>deno</span><b id="engineDeno">memuat…</b></div>
+      <div class="engine-row"><span class="dot" id="engineAiDot"></span><span>AI key</span><b id="engineAi">memuat…</b></div>
+    </div>
+
+    <div class="profile">
+      <span class="avatar">N</span>
+      <div>
+        <strong>Nuel W.</strong>
+        <small>local workspace</small>
+      </div>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar">
+      <div class="crumb" id="crumb"><span>WORKSPACE</span><i>/</i><b>CLIP STUDIO</b></div>
+      <div class="top-actions">
+        <button class="btn ghost small" id="topCookies" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a4 4 0 0 0 4 4 4 4 0 0 0 4 4 5 5 0 1 1-6 6 4 4 0 0 1-4-4 4 4 0 0 1-2-6Z"/><circle cx="9" cy="13" r=".8"/><circle cx="14" cy="17" r=".8"/></svg>
+          Cookies
+        </button>
+        <div class="asset-pill" id="assetStatus" title="Status tool">
+          <span class="dot"></span><span>memuat…</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- CREATE -->
+      <section id="view-create" class="view">
+        <div class="hero">
+          <p class="eyebrow">STUDIO KLIP OTOMATIS · 100% LOKAL</p>
+          <h1>Potong momennya.<br>Jaga <em>rasanya.</em></h1>
+          <p class="hero-copy">Tempel URL YouTube. AI membaca transkrip, memilih momen yang berdiri sendiri, lalu merender klip 9:16 dengan caption per kata dan hook.</p>
+          <div class="stats">
+            <div><b id="statClips">05</b><span>KLIP</span></div>
+            <div><b>9:16</b><span>FORMAT</span></div>
+            <div><b>03</b><span>LANGKAH</span></div>
+          </div>
+        </div>
+
+        <div class="create-grid">
+          <form id="createForm" class="panel source-card">
+            <div class="panel-head">
+              <div>
+                <p class="panel-kicker">SUMBER</p>
+                <h2>Video panjang</h2>
+              </div>
+              <span class="tag">01 / 03</span>
+            </div>
+
+            <label class="field">
+              <span>URL YouTube</span>
+              <div class="input-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="4"/><path d="m10 9.4 5 2.6-5 2.6Z"/></svg>
+                <input id="url" name="url" type="url" required placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+              </div>
+            </label>
+
+            <div class="field-row">
+              <label class="field">
+                <span>Jumlah klip</span>
+                <input id="numClips" type="number" min="1" max="20" value="5">
+              </label>
+              <label class="field">
+                <span>Bahasa subtitle</span>
+                <select id="subtitleLanguage"></select>
+              </label>
+            </div>
+
+            <details class="advanced">
+              <summary>Pengaturan lanjutan</summary>
+              <div class="advanced-body">
+                <label class="field">
+                  <span>Bahasa output</span>
+                  <select id="outputLanguage"></select>
+                </label>
+                <label class="field">
+                  <span>Arahan tambahan <small>opsional</small></span>
+                  <textarea id="direction" rows="3" placeholder="Contoh: Lewati intro dan bagian sponsor. Fokus ke bagian 5:10–12:00."></textarea>
+                </label>
+              </div>
+            </details>
+
+            <div class="cookie-box">
+              <div class="cookie-row">
+                <div>
+                  <strong>Cookies YouTube</strong>
+                  <p id="cookieStatus">Belum ada cookies.</p>
+                </div>
+                <button type="button" class="btn ghost small" id="toggleCookies">Kelola</button>
+              </div>
+              <div id="cookieEditor" class="cookie-editor hidden">
+                <p class="hint">Ekspor cookies khusus <b>youtube.com</b> (format Netscape). Domain lain otomatis dibuang; dari google.com hanya cookie login YouTube yang disimpan.</p>
+                <input type="file" id="cookieFile" accept=".txt,text/plain">
+                <textarea id="cookieText" rows="5" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	…	SID	…"></textarea>
+                <div class="row-actions">
+                  <button type="button" class="btn ghost small" id="saveCookies">Simpan cookies</button>
+                  <button type="button" class="btn danger small" id="deleteCookies">Hapus</button>
+                </div>
+              </div>
+            </div>
+
+            <button class="btn primary wide" id="findBtn" type="submit">
+              <span>Cari highlight</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+            <p class="fineprint">Butuh API key OpenAI-compatible di Pengaturan. Tanpa cookies, video publik biasanya tetap bisa diproses.</p>
+          </form>
+
+          <div class="side-stack">
+            <aside class="panel preview-card">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">PREVIEW</p>
+                  <h2>9:16</h2>
+                </div>
+                <span class="tag">LIVE MOCK</span>
+              </div>
+              <div class="phone-wrap">
+                <div class="phone">
+                  <div class="phone-glow glow-lime"></div>
+                  <div class="phone-glow glow-warm"></div>
+                  <div class="phone-top"><span>AIKLIPYT</span><span>● 9:16</span></div>
+                  <p class="phone-hook" id="previewHook">Ini yang tidak dibicarakan.</p>
+                  <div class="phone-captions">
+                    <span>kita semua punya</span>
+                    <span class="active">rasa</span>
+                    <span>yang sama</span>
+                  </div>
+                  <div class="phone-foot"><span id="previewMeta">AI PICK · —:—</span><span>H.264 · 30 FPS</span></div>
+                </div>
+              </div>
+              <div class="preview-caption">Hasil akhir 1080 × 1920, caption per kata, hook di tiga detik pertama.</div>
+            </aside>
+
+            <aside class="panel job-panel" id="jobPanel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">PROSES</p>
+                  <h2 id="jobTitle">Status</h2>
+                </div>
+                <span class="tag" id="jobState">idle</span>
+              </div>
+              <div class="empty-state" id="jobEmpty">
+                <div class="orb"></div>
+                <p>Hasil muncul di sini.<br>Mulai dengan satu URL.</p>
+              </div>
+              <div id="jobBody" class="hidden">
+                <p class="job-message" id="jobMessage">Menunggu…</p>
+                <div class="progress"><span id="jobProgress"></span></div>
+                <p class="progress-label" id="jobPercent">0%</p>
+                <p class="job-error hidden" id="jobError"></p>
+                <details class="log-wrap">
+                  <summary>Log proses</summary>
+                  <pre id="jobLog"></pre>
+                </details>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <div class="pipeline">
+          <div class="pipe-step is-done"><b>01</b><span>TRANSKRIP</span><i>yt-dlp</i></div>
+          <div class="pipe-step"><b>02</b><span>HIGHLIGHT</span><i>AI pick</i></div>
+          <div class="pipe-step"><b>03</b><span>RENDER</span><i>ffmpeg</i></div>
+          <div class="pipe-note">Semua proses berjalan di mesin ini</div>
+        </div>
+
+        <section class="panel results hidden" id="resultsPanel">
+          <div class="panel-head results-head">
+            <div>
+              <p class="panel-kicker">AI PICK</p>
+              <h2 id="resultTitle">Highlight</h2>
+              <p class="sub" id="resultMeta"></p>
+            </div>
+            <div class="row-actions">
+              <button class="btn ghost small" id="selectGood" type="button">Pilih skor ≥ 7</button>
+              <button class="btn ghost small" id="selectAll" type="button">Pilih semua</button>
+              <button class="btn primary" id="renderBtn" type="button">Render klip</button>
+            </div>
+          </div>
+          <p class="score-note">Skor = hook 35% · emosi 25% · kejelasan 20% · loop 20%. Diurutkan dari yang paling potensial.</p>
+          <div class="highlight-list" id="highlightList"></div>
+        </section>
+      </section>
+
+      <!-- LIBRARY -->
+      <section id="view-library" class="view hidden">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">HASIL KERJA</p>
+            <h1>Pustaka</h1>
+            <p class="sub">Semua sesi dan klip tersimpan lokal di folder <code>data/outputs</code>.</p>
+          </div>
+          <button class="btn ghost" id="refreshLibrary" type="button">Muat ulang</button>
+        </div>
+        <div id="libraryList" class="library-list"></div>
+        <section class="panel hidden" id="libraryDetail">
+          <div class="panel-head">
+            <div>
+              <p class="panel-kicker">SESI</p>
+              <h2 id="detailTitle">Sesi</h2>
+              <p class="sub" id="detailMeta"></p>
+            </div>
+            <div class="row-actions">
+              <button class="btn ghost small" id="openOutput" type="button">Buka folder</button>
+              <button class="btn danger small" id="deleteSession" type="button">Hapus sesi</button>
+            </div>
+          </div>
+          <div class="clip-grid" id="clipGrid"></div>
+        </section>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="view-settings" class="view hidden">
+        <div class="page-head">
+          <div>
+            <p class="eyebrow">KONFIGURASI LOKAL</p>
+            <h1>Pengaturan</h1>
+            <p class="sub">API key, gaya render, dan tool yang dipakai. Semua tersimpan di mesin ini.</p>
+          </div>
+          <button class="btn primary" id="saveSettings" type="button">Simpan</button>
+        </div>
+
+        <form id="settingsForm" class="settings-grid">
+          <section class="panel">
+            <div class="panel-head"><h2>Model AI</h2><span class="tag">OpenAI-compatible</span></div>
+            <label class="field">
+              <span>Provider</span>
+              <select id="baseUrlPreset">
+                <option value="google">Google Gemini (AI Studio)</option>
+                <option value="openai">OpenAI</option>
+                <option value="groq">Groq</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="local">vLLM lokal</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Base URL</span>
+              <input id="baseUrl" autocomplete="off" spellcheck="false" placeholder="https://….example/v1">
+            </label>
+            <p class="hint">Google: <code>https://generativelanguage.googleapis.com/v1beta/openai</code> — API key dari Google AI Studio. Pilih <b>Custom</b> untuk endpoint lain.</p>
+            <label class="field">
+              <span>API key</span>
+              <input id="apiKey" type="password" autocomplete="new-password" placeholder="Tersimpan aman — isi hanya untuk mengganti">
+            </label>
+            <p class="hint">Disimpan dengan DPAPI milik Windows (hanya user ini). Kosongkan untuk mempertahankan key lama.</p>
+            <div class="field">
+              <span>Model</span>
+              <div class="model-row">
+                <select id="model">
+                  <option value="">Belum ada model — klik Muat model</option>
+                </select>
+                <button class="btn ghost small" id="refreshModels" type="button">Muat model</button>
+              </div>
+              <input id="modelCustom" class="hidden" autocomplete="off" spellcheck="false" placeholder="nama model custom">
+              <p class="hint" id="modelsStatus">Muat daftar model dari provider, atau pilih Custom untuk mengetik manual.</p>
+            </div>
+            <label class="field">
+              <span>Bahasa output default</span>
+              <select id="settingsOutputLanguage"></select>
+            </label>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Klip</h2><span class="tag">durasi</span></div>
+            <div class="field-row">
+              <label class="field">
+                <span>Minimum (detik)</span>
+                <input id="minSeconds" type="number" min="5" max="600" step="1">
+              </label>
+              <label class="field">
+                <span>Maksimum (detik)</span>
+                <input id="maxSeconds" type="number" min="5" max="600" step="1">
+              </label>
+            </div>
+            <label class="field">
+              <span>Padding (detik)</span>
+              <input id="padding" type="number" min="0" max="5" step="0.05">
+            </label>
+            <label class="check">
+              <input id="portrait" type="checkbox">
+              <span>Reframe vertikal 9:16</span>
+            </label>
+            <label class="field">
+              <span>Latar vertikal</span>
+              <select id="background">
+                <option value="black">Hitam</option>
+                <option value="blurred">Blur dari video</option>
+              </select>
+            </label>
+            <label class="check">
+              <input id="captions" type="checkbox">
+              <span>Caption per kata</span>
+            </label>
+            <div class="field-row">
+              <label class="field">
+                <span>Warna aksen caption</span>
+                <input id="captionColor" type="color" value="#ffd700">
+              </label>
+              <label class="field">
+                <span>Gaya karaoke</span>
+                <select id="captionStyle">
+                  <option value="highlight">Highlight kata</option>
+                  <option value="box">Kotak tebal</option>
+                  <option value="pop">Pop membesar</option>
+                </select>
+              </label>
+            </div>
+            <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Kotak tebal = kata aktif dengan garis tebal; Pop = kata aktif membesar.</p>
+            <label class="check">
+              <input id="hook" type="checkbox">
+              <span>Hook di awal klip</span>
+            </label>
+            <label class="field">
+              <span>Durasi hook (detik)</span>
+              <input id="hookSeconds" type="number" min="0.5" max="10" step="0.5">
+            </label>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>Branding</h2><span class="tag">opsional</span></div>
+            <label class="field">
+              <span>Path watermark (PNG/JPG)</span>
+              <input id="watermark" placeholder="D:\logo\watermark.png" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>Teks kredit</span>
+              <input id="credit" placeholder="@channel" maxlength="80">
+            </label>
+            <label class="field">
+              <span>ffmpeg</span>
+              <input id="ffmpegPath" placeholder="otomatis" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>deno</span>
+              <input id="denoPath" placeholder="otomatis" spellcheck="false">
+            </label>
+            <p class="hint" id="assetHint"></p>
+          </section>
+
+          <section class="panel panel-note">
+            <div class="panel-head"><h2>Privasi</h2><span class="tag">lokal</span></div>
+            <ul class="notes">
+              <li>Tidak ada akun, telemetri, atau panggilan ke server AIKLIPYT.</li>
+              <li>Cookies difilter ke domain YouTube; ekspor seluruh browser tidak disimpan mentah.</li>
+              <li>API key dienkripsi DPAPI. File konfigurasi ada di <code>data/config.json</code>.</li>
+              <li>Semua video diproses di mesin ini memakai ffmpeg + yt-dlp.</li>
+            </ul>
+          </section>
+        </form>
+      </section>
+    </main>
+
+    <footer>
+      <span>AIKLIPYT v1 · lokal, tanpa telemetri</span>
+      <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
+    </footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
