@@ -45,6 +45,7 @@ def _public_config() -> dict:
     config = load()
     key = api_key(config)
     config["ai"].pop("apiKeyEnc", None)
+    config["ai"].pop("apiKey", None)
     config["ai"]["hasKey"] = bool(key)
     return config
 
@@ -73,6 +74,52 @@ def _trusted_host(value: str) -> bool:
     except ValueError:
         return False
     return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def _trusted_origin(origin: str, host: str) -> bool:
+    """Only the exact loopback origin currently serving the app may send POSTs."""
+    try:
+        parsed = urlsplit((origin or "").strip())
+        host_parts = urlsplit("//" + (host or "").strip())
+        if parsed.scheme != "http" or parsed.username or parsed.password:
+            return False
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            return False
+        return (parsed.port or 80) == (host_parts.port or 80)
+    except ValueError:
+        return False
+
+
+def _origin_allowed(origin: str | None, host: str, method: str) -> bool:
+    if not _trusted_host(host):
+        return False
+    if origin is None:
+        return method != "POST"
+    return _trusted_origin(origin, host)
+
+
+def _static_path(relative: str) -> Path | None:
+    """Resolve only plain files below web/; reject separators and drive/UNC paths first."""
+    if "\\" in relative or ":" in relative:
+        return None
+    try:
+        candidate = (WEB / relative).resolve()
+        candidate.relative_to(WEB.resolve())
+    except (ValueError, OSError):
+        return None
+    return candidate
+
+
+def _model_auth(body: dict, config: dict) -> tuple[str, str]:
+    """A stored key only goes to the saved base URL; new providers need their own key."""
+    base = str(body.get("baseUrl") or config["ai"].get("baseUrl") or "").strip()
+    key = str(body.get("apiKey") or "").strip()
+    if key:
+        return base, key
+    saved = str(config["ai"].get("baseUrl") or "").strip().rstrip("/")
+    if base.rstrip("/") != saved:
+        raise ValueError("Isi API key untuk base URL baru.")
+    return base, api_key(config) or ""
 
 
 def _apply_settings(body: dict) -> dict:
@@ -159,7 +206,8 @@ class Handler(BaseHTTPRequestHandler):
                 "Content-Security-Policy",
                 "default-src 'self'; img-src 'self' https://i.ytimg.com data: blob:; "
                 "media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
-                "connect-src 'self'; frame-ancestors 'none'",
+                "connect-src 'self'; frame-ancestors 'none'; object-src 'none'; "
+                "base-uri 'none'; form-action 'self'",
             )
         if extra:
             for key, value in extra.items():
@@ -175,6 +223,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(status, {"ok": False, "error": message})
 
     def _body(self) -> dict:
+        content_type = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
+            raise ValueError("Content-Type harus application/json")
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > MAX_BODY:
             raise ValueError("Request body is empty or too large")
@@ -188,12 +239,8 @@ class Handler(BaseHTTPRequestHandler):
         return value
 
     def _check_origin(self) -> bool:
-        origin = self.headers.get("Origin")
-        if origin and not _trusted_host(origin):
+        if not _origin_allowed(self.headers.get("Origin"), self.headers.get("Host", ""), self.command):
             self._error(403, "Cross-origin request blocked")
-            return False
-        if not _trusted_host(self.headers.get("Host", "")):
-            self._error(403, "Invalid host")
             return False
         return True
 
@@ -288,10 +335,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         relative = path.lstrip("/") or "index.html"
-        candidate = (WEB / relative).resolve()
-        try:
-            candidate.relative_to(WEB.resolve())
-        except ValueError:
+        candidate = _static_path(relative)
+        if candidate is None:
             self._error(404, "Not found")
             return
         if candidate.is_dir():
@@ -313,8 +358,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/models":
                 current = load()
-                base = str(body.get("baseUrl") or current["ai"].get("baseUrl") or "").strip()
-                key = str(body.get("apiKey") or "").strip() or api_key(current) or ""
+                base, key = _model_auth(body, current)
                 try:
                     models = model_catalog.list_models(base, key)
                 except model_catalog.ModelsError as exc:
@@ -349,7 +393,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not payload or len(payload) > 6 * 1024 * 1024:
                     self._error(400, "Ukuran gambar maksimal 6 MB.")
                     return
-                ext = ".png" if match.group(1).lower() == "png" else ".jpg"
+                kind = match.group(1).lower()
+                if kind == "png" and not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+                    self._error(400, "Gambar tidak valid.")
+                    return
+                if kind != "png" and not payload.startswith(b"\xff\xd8\xff"):
+                    self._error(400, "Gambar tidak valid.")
+                    return
+                ext = ".png" if kind == "png" else ".jpg"
                 stem = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(raw_name).stem).strip("-")[:40] or "watermark"
                 WATERMARKS.mkdir(parents=True, exist_ok=True)
                 target = WATERMARKS / f"{stem}-{int(time.time() * 1000)}{ext}"
@@ -358,8 +409,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if path == "/api/highlights":
                 url = str(body.get("url", "")).strip()
-                if not re.match(r"^https?://", url):
-                    self._error(400, "URL video tidak valid")
+                try:
+                    target = urlsplit(url)
+                except ValueError:
+                    target = None
+                host = (target.hostname or "").lower() if target else ""
+                if (
+                    target is None
+                    or target.scheme not in ("http", "https")
+                    or not (host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com"))
+                ):
+                    self._error(400, "URL YouTube tidak valid")
                     return
                 try:
                     num = max(1, min(20, int(body.get("numClips", 5))))
@@ -384,12 +444,13 @@ class Handler(BaseHTTPRequestHandler):
                 indices = body.get("indices")
                 if not isinstance(indices, list):
                     indices = []
+                indices = [int(item) for item in indices if isinstance(item, (int, str)) and str(item).isdigit()]
+                indices = list(dict.fromkeys(indices))[:100]
                 job_id = pipeline.start_render(
                     {
                         "sessionId": session_id,
-                        "indices": [int(item) for item in indices if isinstance(item, (int, str)) and str(item).isdigit()],
+                        "indices": indices,
                         "overwrite": bool(body.get("overwrite")),
-                        "render": body.get("render") if isinstance(body.get("render"), dict) else {},
                     }
                 )
                 self._json(200, {"ok": True, "jobId": job_id})
@@ -417,7 +478,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, FileNotFoundError) as exc:
             self._error(400, str(exc))
         except Exception as exc:  # noqa: BLE001
-            self._error(500, f"Server error: {exc}")
+            print(f"Server error: {exc}", file=sys.stderr)
+            self._error(500, "Terjadi kesalahan internal.")
 
 
 def _serve(port: int) -> ThreadingHTTPServer:

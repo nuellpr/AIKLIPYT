@@ -1,1 +1,2 @@
-yt-dlp>=2026.10.26
+# Pinned deliberately; bump after reviewing the release notes.
+yt-dlp==2026.10.26

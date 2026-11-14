@@ -20,6 +20,7 @@ class YtdlpError(RuntimeError):
 
 def _env() -> dict:
     env = os.environ.copy()
+    env.pop("AIKLIPYT_API_KEY", None)
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     return env

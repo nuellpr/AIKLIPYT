@@ -22,8 +22,7 @@ if errorlevel 1 (
 )
 
 echo Installing dependencies...
-".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip
-".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
+".venv\Scripts\python.exe" -m pip install --quiet --no-input -r requirements.txt
 if errorlevel 1 (
   echo Failed to install requirements
   pause

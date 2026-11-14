@@ -11,6 +11,13 @@ class ModelsError(Exception):
     """A user-facing failure while listing models."""
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect could forward the Authorization header to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def list_models(base_url: str, key: str, timeout: float = 25.0) -> list[str]:
     base = (base_url or "").strip().rstrip("/")
     if not base.startswith(("http://", "https://")):
@@ -22,7 +29,7 @@ def list_models(base_url: str, key: str, timeout: float = 25.0) -> list[str]:
         headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
             raw = response.read(4_000_000)
     except urllib.error.HTTPError as exc:
         detail = exc.read(300).decode("utf-8", "replace").strip()
