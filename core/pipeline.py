@@ -292,6 +292,8 @@ def _render_worker(job: dict, params: dict) -> None:
                     watermark=render_opts.get("watermark", ""),
                     caption_color=render_opts.get("captionColor", "#FFD700"),
                     caption_style=render_opts.get("captionStyle", "highlight"),
+                    watermark_position=render_opts.get("watermarkPosition", "top-right"),
+                    credit_position=render_opts.get("creditPosition", "bottom-center"),
                     on_progress=progress,
                     on_log=lambda message: _log(job, message),
                 )

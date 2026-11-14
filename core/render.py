@@ -87,6 +87,22 @@ def _groups(words: list[Word]) -> list[list[Word]]:
     return groups
 
 
+def _credit_tag(position: str, width: int, height: int, margin: int) -> str:
+    mapping = {
+        "top-left": (7, margin, margin),
+        "top-center": (8, width // 2, margin),
+        "top-right": (9, width - margin, margin),
+        "middle-left": (4, margin, height // 2),
+        "center": (5, width // 2, height // 2),
+        "middle-right": (6, width - margin, height // 2),
+        "bottom-left": (1, margin, height - margin),
+        "bottom-center": (2, width // 2, height - margin),
+        "bottom-right": (3, width - margin, height - margin),
+    }
+    align, x, y = mapping.get(position, mapping["bottom-center"])
+    return rf"{{\an{align}\pos({x},{y})}}"
+
+
 def build_ass(
     words: list[Word],
     hook_text: str = "",
@@ -97,8 +113,10 @@ def build_ass(
     height: int = 1920,
     caption_color: str = "#FFD700",
     caption_style: str = "highlight",
+    credit_position: str = "bottom-center",
 ) -> str:
     portrait = height >= width
+    margin = 60 if portrait else 40
     accent = _ass_color(caption_color)
     if caption_style not in _CAPTION_STYLES:
         caption_style = "highlight"
@@ -108,7 +126,7 @@ def build_ass(
         caption_size=62 if portrait else 54,
         hook_size=86 if portrait else 64,
         credit_size=40 if portrait else 32,
-        margin=60 if portrait else 40,
+        margin=margin,
         bottom_margin=260 if portrait else 80,
         top_margin=220 if portrait else 70,
         hook_color=accent,
@@ -174,7 +192,7 @@ def build_ass(
 
     if credit.strip():
         events.append(
-            f"Dialogue: 0,{ass_time(0)},{ass_time(max(1.0, end_of_video))},Credit,,0,0,0,,{ass_escape(credit)}"
+            f"Dialogue: 0,{ass_time(0)},{ass_time(max(1.0, end_of_video))},Credit,,0,0,0,,{_credit_tag(credit_position, width, height, margin)}{ass_escape(credit)}"
         )
 
     return header + "\n".join(events) + "\n"
@@ -249,7 +267,28 @@ def _portrait_chain(background: str) -> str:
     )
 
 
-def _filter_complex(portrait: bool, background: str, use_ass: bool, logo: Path | None, logo_opacity: float) -> str:
+def _logo_xy(position: str) -> tuple[str, str]:
+    return {
+        "top-left": ("40", "40"),
+        "top-center": ("(W-w)/2", "40"),
+        "top-right": ("W-w-40", "40"),
+        "middle-left": ("40", "(H-h)/2"),
+        "center": ("(W-w)/2", "(H-h)/2"),
+        "middle-right": ("W-w-40", "(H-h)/2"),
+        "bottom-left": ("40", "H-h-40"),
+        "bottom-center": ("(W-w)/2", "H-h-40"),
+        "bottom-right": ("W-w-40", "H-h-40"),
+    }.get(position, ("W-w-40", "40"))
+
+
+def _filter_complex(
+    portrait: bool,
+    background: str,
+    use_ass: bool,
+    logo: Path | None,
+    logo_opacity: float,
+    logo_position: str = "top-right",
+) -> str:
     chain = _portrait_chain(background) if portrait else (
         "scale=1920:1080:force_original_aspect_ratio=decrease,"
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"
@@ -258,8 +297,9 @@ def _filter_complex(portrait: bool, background: str, use_ass: bool, logo: Path |
     if use_ass:
         graph += ",ass=captions.ass"
     if logo is not None:
-        graph += "[base];[1:v]scale=200:-2,format=rgba,colorchannelmixer=aa={:.2f}[logo];[base][logo]overlay=W-w-40:40[v]".format(
-            max(0.05, min(1.0, logo_opacity))
+        x, y = _logo_xy(logo_position)
+        graph += "[base];[1:v]scale=200:-2,format=rgba,colorchannelmixer=aa={:.2f}[logo];[base][logo]overlay={}:{}[v]".format(
+            max(0.05, min(1.0, logo_opacity)), x, y
         )
     else:
         graph += "[v]"
@@ -283,6 +323,8 @@ def render_clip(
     logo_opacity: float = 0.9,
     caption_color: str = "#FFD700",
     caption_style: str = "highlight",
+    watermark_position: str = "top-right",
+    credit_position: str = "bottom-center",
     on_progress=None,
     on_log=None,
 ) -> Path:
@@ -303,6 +345,7 @@ def render_clip(
                 1920 if portrait else 1080,
                 caption_color=caption_color,
                 caption_style=caption_style,
+                credit_position=credit_position,
             ),
             encoding="utf-8",
         )
@@ -311,7 +354,7 @@ def render_clip(
     if watermark and logo is None and on_log:
         on_log("Watermark file not found, skipping logo")
 
-    graph = _filter_complex(portrait, background, use_ass, logo, logo_opacity)
+    graph = _filter_complex(portrait, background, use_ass, logo, logo_opacity, watermark_position)
     base_cmd = [
         ffmpeg,
         "-y",

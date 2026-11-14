@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import mimetypes
 import os
@@ -24,7 +25,19 @@ from core.secret import api_key, protect
 
 WEB = ROOT / "web"
 VERSION = "1.0.1"
+POSITIONS = {
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "center",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+}
 COOKIES = DATA / "cookies.txt"
+WATERMARKS = DATA / "watermarks"
 MAX_BODY = 8 * 1024 * 1024
 
 
@@ -108,6 +121,10 @@ def _apply_settings(body: dict) -> dict:
         "temp-0",
     ):
         config["render"]["captionStyle"] = "highlight"
+    if config["render"].get("watermarkPosition") not in POSITIONS:
+        config["render"]["watermarkPosition"] = "top-right"
+    if config["render"].get("creditPosition") not in POSITIONS:
+        config["render"]["creditPosition"] = "bottom-center"
     return save(config)
 
 
@@ -242,6 +259,13 @@ class Handler(BaseHTTPRequestHandler):
             except KeyError as exc:
                 self._error(404, str(exc))
             return
+        if path == "/api/watermark":
+            source = Path(load()["render"].get("watermark") or "")
+            if not source.is_file() or source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                self._error(404, "Watermark belum ada")
+                return
+            self._serve_file(source, mimetypes.guess_type(source.name)[0] or "application/octet-stream")
+            return
         if path.startswith("/api/media/"):
             parts = path.split("/")
             if len(parts) != 5:
@@ -303,6 +327,28 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/cookies/delete":
                 cookie_store.remove(COOKIES)
                 self._json(200, {"ok": True, "cookies": cookie_store.status(COOKIES)})
+                return
+            if path == "/api/watermark":
+                raw_name = str(body.get("name") or "watermark")
+                data = str(body.get("data") or "")
+                match = re.match(r"^data:image/(png|jpe?g);base64,(.+)$", data, re.S)
+                if not match:
+                    self._error(400, "Format gambar tidak didukung. Gunakan PNG atau JPG.")
+                    return
+                try:
+                    payload = base64.b64decode(match.group(2), validate=True)
+                except (ValueError, TypeError):
+                    self._error(400, "Gambar tidak valid.")
+                    return
+                if not payload or len(payload) > 6 * 1024 * 1024:
+                    self._error(400, "Ukuran gambar maksimal 6 MB.")
+                    return
+                ext = ".png" if match.group(1).lower() == "png" else ".jpg"
+                stem = re.sub(r"[^A-Za-z0-9_-]+", "-", Path(raw_name).stem).strip("-")[:40] or "watermark"
+                WATERMARKS.mkdir(parents=True, exist_ok=True)
+                target = WATERMARKS / f"{stem}-{int(time.time() * 1000)}{ext}"
+                target.write_bytes(payload)
+                self._json(200, {"ok": True, "path": str(target)})
                 return
             if path == "/api/highlights":
                 url = str(body.get("url", "")).strip()

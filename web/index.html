@@ -372,14 +372,28 @@
 
           <section class="panel">
             <div class="panel-head"><h2>Branding</h2><span class="tag">opsional</span></div>
-            <label class="field">
-              <span>Path watermark (PNG/JPG)</span>
-              <input id="watermark" placeholder="D:\logo\watermark.png" spellcheck="false">
-            </label>
+            <div class="field">
+              <span>Watermark (PNG/JPG)</span>
+              <div class="file-row">
+                <input id="watermark" placeholder="Pilih gambar atau tempel path" spellcheck="false">
+                <button id="pickWatermark" class="btn btn-ghost" type="button">Pilih</button>
+                <button id="clearWatermark" class="btn btn-ghost" type="button">Hapus</button>
+              </div>
+              <input id="watermarkFile" type="file" accept="image/png,image/jpeg" class="hidden">
+              <p class="hint">PNG transparan atau JPG. Maksimal 6 MB, otomatis diperkecil.</p>
+            </div>
+            <div class="field">
+              <span>Posisi watermark</span>
+              <div class="position-grid" id="watermarkPosition" data-position="top-right"></div>
+            </div>
             <label class="field">
               <span>Teks kredit</span>
               <input id="credit" placeholder="@channel" maxlength="80">
             </label>
+            <div class="field">
+              <span>Posisi kredit</span>
+              <div class="position-grid" id="creditPosition" data-position="bottom-center"></div>
+            </div>
             <label class="field">
               <span>ffmpeg</span>
               <input id="ffmpegPath" placeholder="otomatis" spellcheck="false">
@@ -389,6 +403,15 @@
               <input id="denoPath" placeholder="otomatis" spellcheck="false">
             </label>
             <p class="hint" id="assetHint"></p>
+            <div class="brand-preview-wrap">
+              <div class="brand-preview" id="brandPreview">
+                <div class="preview-grid"></div>
+                <img id="previewWatermark" class="preview-watermark pos-top-right hidden" alt="">
+                <span id="previewCredit" class="preview-credit pos-bottom-center hidden">@channel</span>
+                <span class="preview-frame">PREVIEW 9:16</span>
+              </div>
+              <p class="hint">Posisi mengikuti output vertikal 1080×1920.</p>
+            </div>
           </section>
 
           <section class="panel panel-note">

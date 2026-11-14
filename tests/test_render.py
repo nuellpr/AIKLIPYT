@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.assets import ffmpeg_path  # noqa: E402
-from core.render import ass_time, build_ass, probe_size, render_clip  # noqa: E402
+from core.render import _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
 from core.subtitles import Word  # noqa: E402
 
 FFMPEG = ffmpeg_path()
@@ -26,6 +26,15 @@ class AssTests(unittest.TestCase):
         self.assertIn("dunia", ass)
         self.assertIn("@kredit", ass)
         self.assertIn("0:00:00.00,0:00:01.50,Hook", ass)
+
+    def test_credit_and_logo_positions(self):
+        words = [Word("halo", 0.2, 0.7)]
+        top = build_ass(words, credit="@kredit", duration=2, credit_position="top-left")
+        center = build_ass(words, credit="@kredit", duration=2, credit_position="center")
+        self.assertIn(r"{\an7\pos(60,60)}@kredit", top)
+        self.assertIn(r"{\an5\pos(540,960)}@kredit", center)
+        graph = _filter_complex(True, "black", False, Path("logo.png"), 0.9, "bottom-left")
+        self.assertIn("overlay=40:H-h-40", graph)
 
     def test_ass_escapes_braces(self):
         ass = build_ass([], "{evil\\pos(0,0)}", "", 1, 2)

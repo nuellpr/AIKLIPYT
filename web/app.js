@@ -28,6 +28,8 @@ const BASE_URLS = {
   local: "http://localhost:8000/v1",
 };
 
+let watermarkPreview = "";
+
 const state = {
   config: null,
   cookies: null,
@@ -223,6 +225,10 @@ function applySettings() {
   $("hookSeconds").value = config.render?.hookSeconds ?? 3;
   $("watermark").value = config.render?.watermark || "";
   $("credit").value = config.render?.credit || "";
+  setGridValue("watermarkPosition", config.render?.watermarkPosition || "top-right");
+  setGridValue("creditPosition", config.render?.creditPosition || "bottom-center");
+  watermarkPreview = "";
+  updateBrandPreview();
   $("ffmpegPath").value = config.paths?.ffmpeg || "";
   $("denoPath").value = config.paths?.deno || "";
   updateAssetStatus();
@@ -584,7 +590,9 @@ async function saveSettings() {
         hook: $("hook").checked,
         hookSeconds: Number($("hookSeconds").value),
         watermark: $("watermark").value.trim(),
+        watermarkPosition: $("watermarkPosition").dataset.position || "top-right",
         credit: $("credit").value.trim(),
+        creditPosition: $("creditPosition").dataset.position || "bottom-center",
       },
       paths: {
         ffmpeg: $("ffmpegPath").value.trim(),
@@ -732,8 +740,133 @@ function bindEvents() {
   });
 }
 
+const POSITIONS = [
+  ["top-left", "Kiri atas"],
+  ["top-center", "Tengah atas"],
+  ["top-right", "Kanan atas"],
+  ["middle-left", "Kiri tengah"],
+  ["center", "Tengah"],
+  ["middle-right", "Kanan tengah"],
+  ["bottom-left", "Kiri bawah"],
+  ["bottom-center", "Tengah bawah"],
+  ["bottom-right", "Kanan bawah"],
+];
+
+function setGridValue(id, value) {
+  const grid = $(id);
+  if (!grid) return;
+  grid.dataset.position = value;
+  for (const button of grid.querySelectorAll("button")) {
+    button.classList.toggle("active", button.dataset.pos === value);
+  }
+  updateBrandPreview();
+}
+
+function buildPositionGrids() {
+  for (const [id, fallback] of [["watermarkPosition", "top-right"], ["creditPosition", "bottom-center"]]) {
+    const grid = $(id);
+    if (!grid) continue;
+    grid.innerHTML = "";
+    for (const [value, label] of POSITIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.pos = value;
+      button.title = label;
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", () => setGridValue(id, value));
+      grid.appendChild(button);
+    }
+    setGridValue(id, grid.dataset.position || fallback);
+  }
+}
+
+function previewPos(element, position) {
+  for (const [value] of POSITIONS) element.classList.remove(`pos-${value}`);
+  element.classList.add(`pos-${position || "top-right"}`);
+}
+
+function updateBrandPreview() {
+  if (!$("previewWatermark")) return;
+  const path = $("watermark").value.trim();
+  const image = $("previewWatermark");
+  if (path) {
+    image.src = watermarkPreview || `/api/watermark?v=${Date.now()}`;
+    image.classList.remove("hidden");
+  } else {
+    image.removeAttribute("src");
+    image.classList.add("hidden");
+  }
+  previewPos(image, $("watermarkPosition").dataset.position);
+  const credit = $("credit").value.trim();
+  const label = $("previewCredit");
+  label.textContent = credit || "@channel";
+  label.classList.toggle("hidden", !credit);
+  previewPos(label, $("creditPosition").dataset.position);
+}
+
+function downscaleImage(file, max) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, max / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Gambar tidak bisa dibaca"));
+    };
+    image.src = url;
+  });
+}
+
+function bindBranding() {
+  $("pickWatermark").addEventListener("click", () => $("watermarkFile").click());
+  $("watermarkFile").addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      toast("Gunakan PNG atau JPG", true);
+      return;
+    }
+    const button = $("pickWatermark");
+    setBusy(button, true, "Upload...");
+    try {
+      const dataUrl = await downscaleImage(file, 1200);
+      const { path } = await api("/api/watermark", "POST", { name: file.name, data: dataUrl });
+      $("watermark").value = path;
+      watermarkPreview = dataUrl;
+      updateBrandPreview();
+      toast("Watermark diunggah. Klik Simpan untuk menyimpan setelan.");
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      setBusy(button, false);
+      event.target.value = "";
+    }
+  });
+  $("clearWatermark").addEventListener("click", () => {
+    $("watermark").value = "";
+    watermarkPreview = "";
+    updateBrandPreview();
+  });
+  $("watermark").addEventListener("input", () => {
+    watermarkPreview = "";
+    updateBrandPreview();
+  });
+  $("credit").addEventListener("input", updateBrandPreview);
+  $("previewWatermark").addEventListener("error", () => $("previewWatermark").classList.add("hidden"));
+}
+
 async function init() {
   populateLanguages();
+  buildPositionGrids();
+  bindBranding();
   bindEvents();
   try {
     await loadState();
