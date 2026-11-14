@@ -35,8 +35,10 @@ DEFAULTS: dict[str, Any] = {
         "captionStyle": "highlight",
         "watermark": "",
         "watermarkPosition": "top-right",
+        "watermarkOpacity": 0.9,
         "credit": "",
         "creditPosition": "bottom-center",
+        "creditOpacity": 1.0,
     },
     "paths": {"ffmpeg": "", "deno": ""},
 }

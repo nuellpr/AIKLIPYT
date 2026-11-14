@@ -225,6 +225,8 @@ function applySettings() {
   $("hookSeconds").value = config.render?.hookSeconds ?? 3;
   $("watermark").value = config.render?.watermark || "";
   $("credit").value = config.render?.credit || "";
+  $("watermarkOpacity").value = Math.round((config.render?.watermarkOpacity ?? 0.9) * 100);
+  $("creditOpacity").value = Math.round((config.render?.creditOpacity ?? 1) * 100);
   setGridValue("watermarkPosition", config.render?.watermarkPosition || "top-right");
   setGridValue("creditPosition", config.render?.creditPosition || "bottom-center");
   watermarkPreview = "";
@@ -593,6 +595,8 @@ async function saveSettings() {
         watermarkPosition: $("watermarkPosition").dataset.position || "top-right",
         credit: $("credit").value.trim(),
         creditPosition: $("creditPosition").dataset.position || "bottom-center",
+        watermarkOpacity: Number($("watermarkOpacity").value) / 100,
+        creditOpacity: Number($("creditOpacity").value) / 100,
       },
       paths: {
         ffmpeg: $("ffmpegPath").value.trim(),
@@ -796,10 +800,14 @@ function updateBrandPreview() {
     image.removeAttribute("src");
     image.classList.add("hidden");
   }
+  image.style.opacity = Number($("watermarkOpacity").value) / 100;
+  $("watermarkOpacityValue").textContent = `${$("watermarkOpacity").value}%`;
   previewPos(image, $("watermarkPosition").dataset.position);
   const credit = $("credit").value.trim();
   const label = $("previewCredit");
   label.textContent = credit || "@channel";
+  label.style.opacity = Number($("creditOpacity").value) / 100;
+  $("creditOpacityValue").textContent = `${$("creditOpacity").value}%`;
   label.classList.toggle("hidden", !credit);
   previewPos(label, $("creditPosition").dataset.position);
 }
@@ -860,6 +868,9 @@ function bindBranding() {
     updateBrandPreview();
   });
   $("credit").addEventListener("input", updateBrandPreview);
+  for (const id of ["watermarkOpacity", "creditOpacity"]) {
+    $(id).addEventListener("input", updateBrandPreview);
+  }
   $("previewWatermark").addEventListener("error", () => $("previewWatermark").classList.add("hidden"));
 }
 

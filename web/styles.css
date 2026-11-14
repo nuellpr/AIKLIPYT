@@ -780,6 +780,8 @@ footer {
 }
 .position-grid button.active { background: var(--accent); border-color: var(--accent); }
 .position-grid button.active::after { background: var(--accent-ink); }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.field output { float: right; color: var(--accent); font-family: var(--mono); font-size: 10px; }
 .brand-preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 18px; }
 .brand-preview {
   position: relative; width: 200px; aspect-ratio: 9 / 16; overflow: hidden;

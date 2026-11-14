@@ -29,8 +29,8 @@ sama, tanpa build, dan mudah diubah. UI berjalan di browser pada
   Tombol **Muat model** mengisi dropdown model; pilih **Custom** untuk mengetik
   nama model manual.
 - Klip 9:16 dengan latar hitam atau blur; opsi 16:9.
-- Watermark: pilih PNG/JPG dari browser, atur 9 posisi, lihat preview 9:16.
-- Teks kredit: atur 9 posisi dan lihat preview sebelum render.
+- Watermark: pilih PNG/JPG dari browser, atur 9 posisi dan transparansi, lihat preview 9:16.
+- Teks kredit: atur 9 posisi, transparansi, dan lihat preview sebelum render.
 - Caption per kata dengan **warna aksen custom** dan 3 gaya karaoke:
   `Highlight kata`, `Kotak tebal`, `Pop membesar`. Hook memakai warna yang sama.
 - Hook di awal klip, teks kredit, dan watermark PNG/JPG.

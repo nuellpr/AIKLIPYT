@@ -87,7 +87,7 @@ def _groups(words: list[Word]) -> list[list[Word]]:
     return groups
 
 
-def _credit_tag(position: str, width: int, height: int, margin: int) -> str:
+def _credit_tag(position: str, width: int, height: int, margin: int, opacity: float = 1.0) -> str:
     mapping = {
         "top-left": (7, margin, margin),
         "top-center": (8, width // 2, margin),
@@ -100,7 +100,9 @@ def _credit_tag(position: str, width: int, height: int, margin: int) -> str:
         "bottom-right": (3, width - margin, height - margin),
     }
     align, x, y = mapping.get(position, mapping["bottom-center"])
-    return rf"{{\an{align}\pos({x},{y})}}"
+    alpha = int(round((1.0 - max(0.0, min(1.0, opacity))) * 255))
+    fade = "" if alpha == 0 else rf"\alpha&H{alpha:02X}&"
+    return rf"{{\an{align}\pos({x},{y}){fade}}}"
 
 
 def build_ass(
@@ -114,6 +116,7 @@ def build_ass(
     caption_color: str = "#FFD700",
     caption_style: str = "highlight",
     credit_position: str = "bottom-center",
+    credit_opacity: float = 1.0,
 ) -> str:
     portrait = height >= width
     margin = 60 if portrait else 40
@@ -192,7 +195,7 @@ def build_ass(
 
     if credit.strip():
         events.append(
-            f"Dialogue: 0,{ass_time(0)},{ass_time(max(1.0, end_of_video))},Credit,,0,0,0,,{_credit_tag(credit_position, width, height, margin)}{ass_escape(credit)}"
+            f"Dialogue: 0,{ass_time(0)},{ass_time(max(1.0, end_of_video))},Credit,,0,0,0,,{_credit_tag(credit_position, width, height, margin, credit_opacity)}{ass_escape(credit)}"
         )
 
     return header + "\n".join(events) + "\n"
@@ -325,6 +328,7 @@ def render_clip(
     caption_style: str = "highlight",
     watermark_position: str = "top-right",
     credit_position: str = "bottom-center",
+    credit_opacity: float = 1.0,
     on_progress=None,
     on_log=None,
 ) -> Path:
@@ -346,6 +350,7 @@ def render_clip(
                 caption_color=caption_color,
                 caption_style=caption_style,
                 credit_position=credit_position,
+                credit_opacity=credit_opacity,
             ),
             encoding="utf-8",
         )

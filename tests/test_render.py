@@ -36,6 +36,12 @@ class AssTests(unittest.TestCase):
         graph = _filter_complex(True, "black", False, Path("logo.png"), 0.9, "bottom-left")
         self.assertIn("overlay=40:H-h-40", graph)
 
+    def test_branding_opacity(self):
+        ass = build_ass([Word("halo", 0.2, 0.7)], credit="@kredit", duration=2, credit_opacity=0.5)
+        self.assertIn(r"\alpha&H80&", ass)
+        graph = _filter_complex(True, "black", False, Path("logo.png"), 0.4, "top-right")
+        self.assertIn("colorchannelmixer=aa=0.40", graph)
+
     def test_ass_escapes_braces(self):
         ass = build_ass([], "{evil\\pos(0,0)}", "", 1, 2)
         self.assertNotIn("{evil", ass)

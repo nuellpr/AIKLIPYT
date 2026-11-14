@@ -294,6 +294,8 @@ def _render_worker(job: dict, params: dict) -> None:
                     caption_style=render_opts.get("captionStyle", "highlight"),
                     watermark_position=render_opts.get("watermarkPosition", "top-right"),
                     credit_position=render_opts.get("creditPosition", "bottom-center"),
+                    logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),
+                    credit_opacity=float(render_opts.get("creditOpacity", 1.0)),
                     on_progress=progress,
                     on_log=lambda message: _log(job, message),
                 )

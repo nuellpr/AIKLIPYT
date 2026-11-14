@@ -93,7 +93,7 @@ def _apply_settings(body: dict) -> dict:
         values = body.get(section)
         if isinstance(values, dict):
             for key, value in values.items():
-                if key in ("minSeconds", "maxSeconds", "padding", "hookSeconds"):
+                if key in ("minSeconds", "maxSeconds", "padding", "hookSeconds", "watermarkOpacity", "creditOpacity"):
                     try:
                         config[section][key] = float(value)
                     except (TypeError, ValueError):
@@ -125,6 +125,12 @@ def _apply_settings(body: dict) -> dict:
         config["render"]["watermarkPosition"] = "top-right"
     if config["render"].get("creditPosition") not in POSITIONS:
         config["render"]["creditPosition"] = "bottom-center"
+    for key, default in (("watermarkOpacity", 0.9), ("creditOpacity", 1.0)):
+        try:
+            value = float(config["render"].get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        config["render"][key] = max(0.0, min(1.0, value))
     return save(config)
 
 
