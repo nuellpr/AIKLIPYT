@@ -2,6 +2,25 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.2] - 2026-11-14
+
+### Added
+- Pemilih file watermark PNG/JPG dengan upload ke `data/watermarks`, 9 posisi
+  watermark, preview 9:16, dan 9 posisi teks kredit.
+- Slider transparansi watermark dan teks kredit (0-100%) dengan preview langsung.
+- AI diminta mengembalikan jumlah klip yang tepat; hingga 2 panggilan tambahan
+  untuk melengkapi klip yang kurang, dengan peringatan jika tetap kurang.
+
+### Fixed
+- Preview watermark gagal dibaca karena CSP memblokir URL `blob:`; `img-src`
+  sekarang mengizinkan `blob:`.
+- Traceback WinError 10053/10054 saat browser menutup atau seek video tidak lagi
+  ditampilkan.
+
+### Changed
+- Rilis Windows menyertakan ffmpeg 8.0.1 dan deno 2.8.1 beserta lisensi pihak
+  ketiga.
+
 ## [1.0.1] - 2026-11-13
 
 ### Added

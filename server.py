@@ -24,7 +24,7 @@ from core.config import DATA, ROOT, ensure_dirs, load, save
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 POSITIONS = {
     "top-left",
     "top-center",
