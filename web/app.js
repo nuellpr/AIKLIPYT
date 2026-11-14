@@ -819,7 +819,7 @@ function downscaleImage(file, max) {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error("Gambar tidak bisa dibaca"));
+      reject(new Error(`Gambar ${file.name} tidak bisa dibaca (${file.type || "tipe tidak dikenal"}). Coba PNG atau JPG lain.`));
     };
     image.src = url;
   });

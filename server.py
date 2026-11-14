@@ -151,7 +151,7 @@ class Handler(BaseHTTPRequestHandler):
         if content_type.startswith("text/html"):
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; img-src 'self' https://i.ytimg.com data:; "
+                "default-src 'self'; img-src 'self' https://i.ytimg.com data: blob:; "
                 "media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
                 "connect-src 'self'; frame-ancestors 'none'",
             )
