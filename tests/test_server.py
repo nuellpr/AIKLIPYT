@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from server import (  # noqa: E402
     Handler,
+    _normalize_caption_style,
     _model_auth,
     _origin_allowed,
     _static_path,
@@ -147,6 +148,21 @@ class RangeTests(unittest.TestCase):
             handler = _FakeHandler({"Range": "bytes=6-"})
             Handler._serve_file(handler, path, "video/mp4")
             self.assertEqual(b"".join(handler.chunks), b"6789")
+
+
+class CaptionStyleTests(unittest.TestCase):
+    def test_all_caption_styles_are_accepted(self):
+        from core.render import CAPTION_STYLES
+
+        for style in CAPTION_STYLES:
+            config = {"render": {"captionStyle": style}}
+            _normalize_caption_style(config)
+            self.assertEqual(config["render"]["captionStyle"], style)
+
+    def test_unknown_style_falls_back(self):
+        config = {"render": {"captionStyle": "nonsense"}}
+        _normalize_caption_style(config)
+        self.assertEqual(config["render"]["captionStyle"], "highlight")
 
 
 if __name__ == "__main__":

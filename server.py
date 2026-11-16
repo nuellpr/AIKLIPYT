@@ -21,6 +21,7 @@ from core import models as model_catalog
 from core import pipeline, session as session_store
 from core.assets import deno_path, ffmpeg_path
 from core.config import DATA, ROOT, ensure_dirs, load, save
+from core.render import CAPTION_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
@@ -39,6 +40,11 @@ POSITIONS = {
 COOKIES = DATA / "cookies.txt"
 WATERMARKS = DATA / "watermarks"
 MAX_BODY = 8 * 1024 * 1024
+
+
+def _normalize_caption_style(config: dict) -> None:
+    if config["render"].get("captionStyle") not in CAPTION_STYLES:
+        config["render"]["captionStyle"] = "highlight"
 
 
 def _public_config() -> dict:
@@ -156,18 +162,7 @@ def _apply_settings(body: dict) -> dict:
     config["clip"]["padding"] = max(0.0, min(5.0, config["clip"]["padding"]))
     color = str(config["render"].get("captionColor") or "").strip()
     config["render"]["captionColor"] = color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else "#FFD700"
-    if config["render"].get("captionStyle") not in (
-        "highlight",
-        "box",
-        "pop",
-        "smart-bg-focus",
-        "box-highlight",
-        "word-focus",
-        "underline-focus",
-        "outline-focus",
-        "temp-0",
-    ):
-        config["render"]["captionStyle"] = "highlight"
+    _normalize_caption_style(config)
     if config["render"].get("watermarkPosition") not in POSITIONS:
         config["render"]["watermarkPosition"] = "top-right"
     if config["render"].get("creditPosition") not in POSITIONS:
