@@ -336,3 +336,40 @@ def chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout:
     if not isinstance(content, str) or not content.strip():
         raise AIError("AI returned an empty response")
     return content, payload.get("usage") or {}
+
+
+def translate_groups(
+    texts: list[str],
+    target: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout: int = 60,
+) -> list[str]:
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You translate short video caption lines. Reply with ONLY a JSON array "
+                "of strings, same count and order as the input. No explanation."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {"target_language": target, "lines": texts}, ensure_ascii=False
+            ),
+        },
+    ]
+    content, _ = chat(base_url, api_key, model, messages, timeout=timeout)
+    try:
+        result = json.loads(_strip_fences(content))
+    except (ValueError, TypeError) as exc:
+        raise AIError("AI translation was not valid JSON") from exc
+    if (
+        not isinstance(result, list)
+        or len(result) != len(texts)
+        or any(not isinstance(item, str) for item in result)
+    ):
+        raise AIError("AI translation must be a JSON array of the same length as the input")
+    return [item.strip() for item in result]

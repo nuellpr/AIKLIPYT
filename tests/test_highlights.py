@@ -14,6 +14,7 @@ from core.highlights import (  # noqa: E402
     coerce_clips,
     extract_clips,
     select_clips,
+    translate_groups,
 )
 
 
@@ -217,6 +218,52 @@ class ChatTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
         self.assertNotIn("auth", stolen)
+
+
+class TranslateTests(unittest.TestCase):
+    def _translate(self, texts, content):
+        captured = {}
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length") or 0)
+                captured["body"] = json.loads(self.rfile.read(length))
+                data = json.dumps(
+                    {"choices": [{"message": {"content": content}}]}
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            result = translate_groups(
+                texts, "Indonesian", f"http://127.0.0.1:{server.server_address[1]}/v1", "k", "m"
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+        return result, captured
+
+    def test_translate_groups_parses_json_array(self):
+        out, captured = self._translate(["Hello", "World"], '["Halo","Dunia"]')
+        self.assertEqual(out, ["Halo", "Dunia"])
+        self.assertEqual(captured["body"]["messages"][0]["role"], "system")
+
+    def test_translate_groups_rejects_wrong_count(self):
+        with self.assertRaises(AIError):
+            self._translate(["a", "b"], '["only one"]')
+
+    def test_translate_groups_rejects_non_array(self):
+        with self.assertRaises(AIError):
+            self._translate(["a"], '{"wrong":"shape"}')
 
 
 class ExactCountPromptTests(unittest.TestCase):
