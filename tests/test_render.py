@@ -123,6 +123,14 @@ class AssTests(unittest.TestCase):
         self.assertIn("Halo!", ass)
         self.assertIn("CaptionAlt", ass)
 
+    def test_bilingual_translation_is_once_per_group(self):
+        # Two close words form one group; the translation must appear once, not once per word.
+        words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
+        ass = build_ass(words, caption_style="bilingual", translations=["Halo dunia!"])
+        alt_events = [line for line in ass.splitlines()
+                      if line.startswith("Dialogue:") and "CaptionAlt" in line]
+        self.assertEqual(len(alt_events), 1)
+
     def test_bilingual_partial_translations(self):
         # 5 words become 2 groups; only the first gets a translation. The short
         # translations list must not crash and every original word still renders.
@@ -196,7 +204,8 @@ class FfmpegRenderTests(unittest.TestCase):
                 timeout=120,
             )
             words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
-            for style in ("smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus", "temp-0"):
+            for style in ("smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus", "temp-0",
+                          "hormozi", "karaoke", "gadzhi", "mrbeast", "bilingual"):
                 output = work / f"out_{style}.mp4"
                 render_clip(
                     source,

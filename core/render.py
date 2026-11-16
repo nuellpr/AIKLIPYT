@@ -241,12 +241,12 @@ def build_ass(
                 continue
             text = " ".join(parts)
             events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{event_style},,0,0,0,,{text}")
-            if caption_style == "bilingual" and translations and group_index < len(translations):
-                translated = (translations[group_index] or "").strip()
-                if translated:
-                    events.append(
-                        f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
-                    )
+        if caption_style == "bilingual" and translations and group_index < len(translations):
+            translated = (translations[group_index] or "").strip()
+            if translated:
+                events.append(
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
+                )
 
     if credit.strip():
         events.append(
