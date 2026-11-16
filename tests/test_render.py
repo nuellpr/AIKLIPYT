@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.assets import ffmpeg_path  # noqa: E402
-from core.render import _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
+from core.render import CAPTION_STYLES, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
 from core.subtitles import Word  # noqa: E402
 
 FFMPEG = ffmpeg_path()
@@ -82,6 +82,61 @@ class AssTests(unittest.TestCase):
         self.assertIn("DUNIA", temp0)
         self.assertIn(r"\shad0", temp0)
         self.assertIn(r"\3c&H000000&", temp0)
+
+    def test_caption_styles_exposes_new_presets(self):
+        for name in ("hormozi", "karaoke", "gadzhi", "mrbeast", "bilingual"):
+            self.assertIn(name, CAPTION_STYLES)
+        self.assertEqual(len(CAPTION_STYLES), 14)
+
+    def test_hormozi_style(self):
+        ass = build_ass([Word("halo", 0.2, 0.7)], caption_style="hormozi")
+        self.assertIn(r"\bord12", ass)
+        self.assertIn("HALO", ass)
+
+    def test_karaoke_style(self):
+        words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
+        ass = build_ass(words, caption_style="karaoke")
+        self.assertIn(r"{\kf", ass)
+        self.assertIn(r"\2c&H00FFFFFF&", ass)
+
+    def test_karaoke_single_word_min_duration(self):
+        # A zero-length word must still produce a positive karaoke fill time.
+        ass = build_ass([Word("halo", 0.2, 0.2)], caption_style="karaoke")
+        self.assertIn(r"{\kf1}", ass)
+
+    def test_gadzhi_style(self):
+        ass = build_ass([Word("halo", 0.2, 0.7)], caption_style="gadzhi")
+        self.assertIn(r"\fnArial\b0", ass)
+        self.assertIn(r"\bord1", ass)
+
+    def test_mrbeast_style(self):
+        words = [Word("a", 0.1, 0.4), Word("b", 0.5, 0.8), Word("c", 0.9, 1.2)]
+        ass = build_ass(words, caption_style="mrbeast")
+        self.assertIn(r"\fscx120", ass)
+        self.assertIn("A", ass)
+
+    def test_bilingual_renders_translation_above(self):
+        words = [Word("halo", 0.2, 0.7)]
+        ass = build_ass(words, "TONTON INI", "@kredit", 1.5, 2.0,
+                        caption_style="bilingual", translations=["Halo!"])
+        self.assertIn("halo", ass)
+        self.assertIn("Halo!", ass)
+        self.assertIn("CaptionAlt", ass)
+
+    def test_bilingual_partial_translations(self):
+        # 5 words become 2 groups; only the first gets a translation. The short
+        # translations list must not crash and every original word still renders.
+        words = [Word("a", 0.1, 0.4), Word("b", 0.5, 0.8), Word("c", 0.9, 1.2),
+                 Word("d", 1.3, 1.6), Word("e", 1.7, 2.0)]
+        ass = build_ass(words, caption_style="bilingual", translations=["only"])
+        for token in ("a", "b", "c", "d", "e"):
+            self.assertIn(token, ass)
+        self.assertIn("only", ass)
+
+    def test_bilingual_escapes_translation(self):
+        words = [Word("halo", 0.2, 0.7)]
+        ass = build_ass(words, caption_style="bilingual", translations=["{evil\\pos(0,0)}"])
+        self.assertNotIn("{evil", ass)
 
     def test_time_format(self):
         self.assertEqual(ass_time(0), "0:00:00.00")

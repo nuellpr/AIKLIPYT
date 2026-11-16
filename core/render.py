@@ -24,13 +24,14 @@ Style: Caption,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00000000,&H800
 Style: CaptionBg,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00031410,&H80000000,-1,0,0,0,100,100,0,0,3,18,0,2,{margin},{margin},{bottom_margin},1
 Style: Hook,Arial Black,{hook_size},{hook_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,8,{margin},{margin},{top_margin},1
 Style: Credit,Arial,{credit_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,3,{margin},{margin},{margin},1
+Style: CaptionAlt,Arial,{alt_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,{margin},{margin},{alt_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 _WHITE = r"{\c&H00FFFFFF&}"
-_CAPTION_STYLES = (
+CAPTION_STYLES = (
     "highlight",
     "box",
     "pop",
@@ -40,6 +41,19 @@ _CAPTION_STYLES = (
     "underline-focus",
     "outline-focus",
     "temp-0",
+    "hormozi",
+    "karaoke",
+    "gadzhi",
+    "mrbeast",
+    "bilingual",
+)
+MRBEAST_COLORS = (
+    "&H0000D7FF&",  # gold (default accent)
+    "&H0000FF00&",  # green
+    "&H00FF00FF&",  # magenta
+    "&H0000FFFF&",  # red
+    "&H00FFD700&",  # blue-violet
+    "&H00FF8000&",  # sky blue
 )
 
 
@@ -91,6 +105,9 @@ def _groups(words: list[Word]) -> list[list[Word]]:
     return groups
 
 
+group_words = _groups  # public alias for the pipeline's bilingual grouping
+
+
 def _credit_tag(position: str, width: int, height: int, margin: int, opacity: float = 1.0) -> str:
     mapping = {
         "top-left": (7, margin, margin),
@@ -121,11 +138,12 @@ def build_ass(
     caption_style: str = "highlight",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
+    translations: list[str] | None = None,
 ) -> str:
     portrait = height >= width
     margin = 60 if portrait else 40
     accent = _ass_color(caption_color)
-    if caption_style not in _CAPTION_STYLES:
+    if caption_style not in CAPTION_STYLES:
         caption_style = "highlight"
     header = _ASS_HEADER.format(
         width=width,
@@ -133,9 +151,11 @@ def build_ass(
         caption_size=62 if portrait else 54,
         hook_size=86 if portrait else 64,
         credit_size=40 if portrait else 32,
+        alt_size=46 if portrait else 38,
         margin=margin,
         bottom_margin=260 if portrait else 80,
         top_margin=220 if portrait else 70,
+        alt_margin=(260 if portrait else 80) + 96,
         hook_color=accent,
     )
     events: list[str] = []
@@ -147,7 +167,18 @@ def build_ass(
             f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{ass_escape(hook_text).upper()}"
         )
 
-    for group in _groups(words):
+    for group_index, group in enumerate(group_words(words)):
+        if caption_style == "karaoke":
+            kf = []
+            for i, w in enumerate(group):
+                dur = (group[i + 1].start - w.start) if i + 1 < len(group) else (w.end - w.start)
+                kf.append(r"{\kf" + str(max(1, int(round(dur * 100)))) + "}" + ass_escape(w.word))
+            if kf:
+                text = r"{\2c&H00FFFFFF&}" + _color_tag(accent) + " ".join(kf)
+                events.append(
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},Caption,,0,0,0,,{text}"
+                )
+            continue
         event_style = "CaptionBg" if caption_style == "smart-bg-focus" else "Caption"
         for index, word in enumerate(group):
             start = word.start
@@ -164,7 +195,7 @@ def build_ass(
                 token = ass_escape(other.word)
                 if not token:
                     continue
-                if caption_style in ("underline-focus", "temp-0"):
+                if caption_style in ("underline-focus", "temp-0", "hormozi", "mrbeast"):
                     token = token.upper()
                 if other_index == index:
                     if caption_style == "box":
@@ -181,6 +212,14 @@ def build_ass(
                         parts.append(f"{{\\1a&H00&\\c{accent}\\3c{accent}\\bord3\\shad0}}" + token + r"{\rCaption}")
                     elif caption_style == "temp-0":
                         parts.append(f"{{\\shad0\\c{accent}\\3c&H000000&\\bord4}}" + token + r"{\rCaption}")
+                    elif caption_style == "hormozi":
+                        parts.append(_color_tag(accent) + r"{\fscx118\fscy118}" + token + r"{\rCaption}" + r"{\bord12\3c&H000000&\shad2}")
+                    elif caption_style == "gadzhi":
+                        base = r"{\fnArial\b0\bord1\shad0\3c&H000000&}"
+                        parts.append(_color_tag(accent) + base + token + r"{\rCaption}" + base)
+                    elif caption_style == "mrbeast":
+                        color = MRBEAST_COLORS[other_index % len(MRBEAST_COLORS)]
+                        parts.append(f"{{\\c{color}\\fscx120\\fscy120}}" + token + r"{\rCaption}" + r"{\bord8\3c&HFFFFFF&\shad2}")
                     else:
                         parts.append(_color_tag(accent) + token + _WHITE)
                 else:
@@ -190,12 +229,24 @@ def build_ass(
                         parts.append(r"{\1a&HFF&\3c&HFFFFFF&\bord3\shad0}" + token + r"{\rCaption}")
                     elif caption_style == "temp-0":
                         parts.append(r"{\shad0}" + token)
+                    elif caption_style == "hormozi":
+                        parts.append(r"{\bord12\3c&H000000&\shad2}" + token)
+                    elif caption_style == "gadzhi":
+                        parts.append(r"{\fnArial\b0\bord1\shad0\3c&H000000&}" + token)
+                    elif caption_style == "mrbeast":
+                        parts.append(r"{\bord8\3c&HFFFFFF&\shad2}" + token)
                     else:
                         parts.append(token)
             if not parts:
                 continue
             text = " ".join(parts)
             events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{event_style},,0,0,0,,{text}")
+            if caption_style == "bilingual" and translations and group_index < len(translations):
+                translated = (translations[group_index] or "").strip()
+                if translated:
+                    events.append(
+                        f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
+                    )
 
     if credit.strip():
         events.append(
