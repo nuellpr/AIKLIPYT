@@ -28,6 +28,7 @@ GOOGLE_AUTH_COOKIES = {
     "__Secure-1PSIDTS",
     "__Secure-3PSIDTS",
 }
+AUTH_COOKIES = frozenset({"SID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO"})
 HEADER = "# Netscape HTTP Cookie File"
 
 
@@ -60,7 +61,7 @@ def filter_cookies(text: str) -> tuple[str, dict]:
     has_auth = False
     for line in kept:
         parts = line.split("\t")
-        if len(parts) >= 7 and parts[5] in {"SID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO"}:
+        if len(parts) >= 7 and parts[5] in AUTH_COOKIES:
             has_auth = True
             break
     return header + (body + "\n" if body else ""), {
@@ -88,7 +89,7 @@ def status(path: Path) -> dict:
         lines = []
     has_auth = any(
         len(line.split("\t")) >= 7
-        and line.split("\t")[5] in {"SID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO"}
+        and line.split("\t")[5] in AUTH_COOKIES
         for line in lines
     )
     return {

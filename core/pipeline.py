@@ -47,6 +47,11 @@ def _new_job(kind: str) -> dict:
     }
     with _lock:
         JOBS[job_id] = job
+        if len(JOBS) > 100:
+            oldest = sorted(JOBS.values(), key=lambda item: item["createdAt"])[: len(JOBS) - 100]
+            for old in oldest:
+                if old["status"] != "running":
+                    JOBS.pop(old["id"], None)
     return job
 
 
@@ -312,6 +317,7 @@ def _render_worker(job: dict, params: dict) -> None:
                 _log(job, f"Clip {index + 1} done: {out.name}")
                 _update(job, progress=(position + 1) / total * 100)
             except (JobError, YtdlpError, RuntimeError) as exc:
+                out.unlink(missing_ok=True)
                 errors.append(f"Clip {index + 1}: {exc}")
                 _log(job, f"Clip {index + 1} failed: {exc}")
             finally:

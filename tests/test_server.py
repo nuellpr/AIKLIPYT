@@ -1,10 +1,12 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from server import (  # noqa: E402
+    Handler,
     _model_auth,
     _origin_allowed,
     _static_path,
@@ -99,6 +101,52 @@ class ModelAuthTests(unittest.TestCase):
     def test_saved_base_url_may_use_the_stored_key(self):
         base, _ = _model_auth({"baseUrl": "https://saved.example/v1/"}, self.config)
         self.assertEqual(base, "https://saved.example/v1/")
+
+
+class _FakeHandler:
+    def __init__(self, headers):
+        self.headers = headers
+        self.chunks = []
+        self.wfile = self
+        self.status = None
+
+    def write(self, data):
+        self.chunks.append(data)
+        return len(data)
+
+    def send_response(self, status):
+        self.status = status
+
+    def send_header(self, key, value):
+        pass
+
+    def end_headers(self):
+        pass
+
+    def _headers(self, status, content_type, length, extra=None):
+        self.status = status
+
+    def _error(self, status, message):
+        self.status = status
+
+
+class RangeTests(unittest.TestCase):
+    def test_suffix_range_returns_the_last_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "clip.mp4"
+            path.write_bytes(b"0123456789")
+            handler = _FakeHandler({"Range": "bytes=-4"})
+            Handler._serve_file(handler, path, "video/mp4")
+            self.assertEqual(handler.status, 206)
+            self.assertEqual(b"".join(handler.chunks), b"6789")
+
+    def test_open_ended_range_returns_rest(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "clip.mp4"
+            path.write_bytes(b"0123456789")
+            handler = _FakeHandler({"Range": "bytes=6-"})
+            Handler._serve_file(handler, path, "video/mp4")
+            self.assertEqual(b"".join(handler.chunks), b"6789")
 
 
 if __name__ == "__main__":

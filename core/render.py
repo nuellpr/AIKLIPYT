@@ -1,11 +1,14 @@
 """FFmpeg rendering: 9:16 reframe, hook, word captions, watermark."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
 
 from .subtitles import Word
+
+_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 _ASS_HEADER = """[Script Info]
 Title: AIKLIPYT captions
@@ -52,10 +55,11 @@ def _color_tag(color: str) -> str:
 
 
 def ass_time(seconds: float) -> str:
-    seconds = max(0.0, seconds)
-    hours, rest = divmod(seconds, 3600)
-    minutes, sec = divmod(rest, 60)
-    return f"{int(hours)}:{int(minutes):02d}:{sec:05.2f}"
+    centis = int(round(max(0.0, seconds) * 100))
+    hours, rest = divmod(centis, 360000)
+    minutes, rest = divmod(rest, 6000)
+    sec, cs = divmod(rest, 100)
+    return f"{hours}:{minutes:02d}:{sec:02d}.{cs:02d}"
 
 
 def ass_escape(text: str) -> str:
@@ -226,7 +230,7 @@ def _probe_encoder(ffmpeg: str, name: str, args: list[str]) -> bool:
             cmd,
             capture_output=True,
             timeout=30,
-            creationflags=0x08000000,
+            creationflags=_CREATE_NO_WINDOW,
         )
         ok = proc.returncode == 0
         if not ok:
@@ -245,7 +249,7 @@ def detect_encoder(ffmpeg: str) -> str | None:
             [ffmpeg, "-hide_banner", "-encoders"],
             capture_output=True,
             timeout=30,
-            creationflags=0x08000000,
+            creationflags=_CREATE_NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -419,7 +423,7 @@ def render_clip(
             cwd=str(workdir),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            creationflags=0x08000000,
+            creationflags=_CREATE_NO_WINDOW,
         )
         tail: list[str] = []
         try:
@@ -458,7 +462,7 @@ def probe_size(path: Path, ffmpeg: str) -> tuple[int, int] | None:
         [ffmpeg, "-hide_banner", "-i", str(path)],
         capture_output=True,
         timeout=30,
-        creationflags=0x08000000,
+        creationflags=_CREATE_NO_WINDOW,
     )
     match = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", proc.stderr.decode("utf-8", "replace"))
     if not match:

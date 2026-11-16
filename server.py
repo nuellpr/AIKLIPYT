@@ -259,10 +259,16 @@ class Handler(BaseHTTPRequestHandler):
             if not match:
                 self._error(416, "Invalid range")
                 return
-            if match.group(1):
-                start = int(match.group(1))
-            if match.group(2):
-                end = min(size - 1, int(match.group(2)))
+            first, last = match.group(1), match.group(2)
+            if not first and not last:
+                self._error(416, "Invalid range")
+                return
+            if first:
+                start = int(first)
+                end = min(size - 1, int(last)) if last else size - 1
+            else:
+                start = max(0, size - int(last))
+                end = size - 1
             if start > end or start >= size:
                 self.send_response(416)
                 self.send_header("Content-Range", f"bytes */{size}")

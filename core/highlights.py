@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.request
 
+from .models import _NoRedirect
 from .subtitles import parse_timestamp
 
 LANGUAGES = {
@@ -165,8 +166,8 @@ def coerce_clips(
 ) -> list[dict]:
     out: list[dict] = []
     for item in items:
-        start = parse_timestamp(item.get("start_time", item.get("start")))
-        end = parse_timestamp(item.get("end_time", item.get("end")))
+        start = parse_timestamp(item.get("start_time") or item.get("start"))
+        end = parse_timestamp(item.get("end_time") or item.get("end"))
         if end is None and start is not None:
             try:
                 end = start + float(item.get("duration_seconds"))
@@ -312,10 +313,12 @@ def chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8", "replace"))
+        opener = urllib.request.build_opener(_NoRedirect)
+        with opener.open(request, timeout=timeout) as response:
+            payload = json.loads(response.read(4_000_000).decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:500]
+        exc.close()
         raise AIError(f"AI provider returned HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
         raise AIError(f"Cannot reach the AI provider: {exc.reason}") from exc

@@ -142,7 +142,7 @@ def parse_json3(data: dict) -> list[Word]:
         segs = event.get("segs") or []
         if not segs:
             continue
-        base = float(event.get("tStartMs", 0))
+        base = float(event.get("tStartMs") or 0)
         event_end = base + float(event.get("dDurationMs", 0) or 0)
         starts = [base + float(seg.get("tOffsetMs", 0) or 0) for seg in segs]
         for position, seg in enumerate(segs):

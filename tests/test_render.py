@@ -87,6 +87,7 @@ class AssTests(unittest.TestCase):
         self.assertEqual(ass_time(0), "0:00:00.00")
         self.assertEqual(ass_time(62.5), "0:01:02.50")
         self.assertEqual(ass_time(3661.25), "1:01:01.25")
+        self.assertEqual(ass_time(59.999), "0:01:00.00")
 
 
 @unittest.skipUnless(FFMPEG, "ffmpeg not available")

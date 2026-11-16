@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from .assets import deno_path, ffmpeg_path
@@ -135,6 +136,8 @@ def download_subtitle(
     timeout: int = 180,
 ) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
+    for stale in workdir.glob("sub.*"):
+        stale.unlink()
     args = _base(url, cookies)
     args[3:3] = [
         "--skip-download",
@@ -170,10 +173,11 @@ def download_subtitle(
 
 
 def _clock(seconds: float) -> str:
-    seconds = max(0.0, seconds)
-    hours, rest = divmod(seconds, 3600)
-    minutes, sec = divmod(rest, 60)
-    return f"{int(hours):02d}:{int(minutes):02d}:{sec:06.3f}"
+    millis = int(round(max(0.0, seconds) * 1000))
+    hours, rest = divmod(millis, 3_600_000)
+    minutes, rest = divmod(rest, 60_000)
+    sec, ms = divmod(rest, 1000)
+    return f"{hours:02d}:{minutes:02d}:{sec:02d}.{ms:03d}"
 
 
 def download_section(
@@ -207,7 +211,16 @@ def download_section(
         creationflags=_CREATE_NO_WINDOW,
     )
     lines: list[str] = []
+    timed_out = threading.Event()
     assert process.stdout is not None
+
+    def _kill_on_timeout() -> None:
+        timed_out.set()
+        process.kill()
+
+    watchdog = threading.Timer(timeout, _kill_on_timeout)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         for raw in process.stdout:
             line = raw.decode("utf-8", "replace").rstrip()
@@ -223,8 +236,11 @@ def download_section(
         process.kill()
         raise YtdlpError("Timed out downloading video section")
     finally:
+        watchdog.cancel()
         if process.stdout:
             process.stdout.close()
+    if timed_out.is_set():
+        raise YtdlpError("Timed out downloading video section")
     if process.returncode != 0:
         raise YtdlpError(_error("\n".join(lines)))
     for name in ("section.mp4", "section.mkv", "section.webm"):

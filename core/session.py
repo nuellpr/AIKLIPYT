@@ -9,11 +9,11 @@ from pathlib import Path
 
 from .config import OUTPUTS, SESSIONS
 
-_ID = re.compile(r"^[A-Za-z0-9_-]{3,80}$")
+_ID = re.compile(r"[A-Za-z0-9_-]{3,80}")
 
 
 def valid_id(session_id: str) -> bool:
-    return bool(_ID.match(session_id or ""))
+    return bool(_ID.fullmatch(session_id or ""))
 
 
 def session_dir(session_id: str) -> Path:
@@ -37,7 +37,12 @@ def create(url: str, info: dict, choice: dict, words: list, cues: list, transcri
     SESSIONS.mkdir(parents=True, exist_ok=True)
     OUTPUTS.mkdir(parents=True, exist_ok=True)
     video_id = re.sub(r"[^A-Za-z0-9_-]", "", str(info.get("id") or ""))[:16] or "video"
-    session_id = time.strftime("%Y%m%d_%H%M%S") + "_" + _slug(info.get("title", ""), video_id)
+    base = time.strftime("%Y%m%d_%H%M%S") + "_" + _slug(info.get("title", ""), video_id)
+    session_id = base
+    counter = 1
+    while (SESSIONS / session_id).exists():
+        session_id = f"{base}_{counter}"
+        counter += 1
     folder = SESSIONS / session_id
     folder.mkdir(parents=True, exist_ok=False)
     (folder / "words.json").write_text(

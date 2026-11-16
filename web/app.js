@@ -39,6 +39,7 @@ const state = {
   sessionId: null,
   selected: new Set(),
   jobTimer: null,
+  busyJob: false,
   detail: null,
   toastTimer: null,
 };
@@ -95,10 +96,14 @@ function toast(message, isError = false) {
 function setBusy(button, busy, text) {
   if (!button) return;
   button.disabled = busy;
-  const label = button.querySelector("span");
-  if (!label) return;
-  if (!button.dataset.label) button.dataset.label = label.textContent;
-  label.textContent = busy ? text : button.dataset.label;
+  const label = button.querySelector("span") || button;
+  if (busy) {
+    if (!button.dataset.label) button.dataset.label = label.textContent;
+    label.textContent = text;
+  } else {
+    if (button.dataset.label) label.textContent = button.dataset.label;
+    delete button.dataset.label;
+  }
 }
 
 function populateLanguages() {
@@ -317,6 +322,10 @@ function pollJob(jobId, onDone, onFail) {
 }
 
 async function findHighlights() {
+  if (state.busyJob) {
+    toast("Ada proses yang masih berjalan.", true);
+    return;
+  }
   const url = $("url").value.trim();
   if (!/^https?:\/\//i.test(url)) {
     toast("Tempel URL YouTube yang valid", true);
@@ -324,6 +333,7 @@ async function findHighlights() {
   }
   const button = $("findBtn");
   setBusy(button, true, "Mencari…");
+  state.busyJob = true;
   $("resultsPanel").classList.add("hidden");
   state.highlights = [];
   state.selected = new Set();
@@ -340,6 +350,7 @@ async function findHighlights() {
       direction: $("direction").value.trim(),
     });
     pollJob(jobId, (job) => {
+      state.busyJob = false;
       setBusy(button, false);
       state.sessionId = job.result.sessionId;
       state.highlights = job.result.highlights || [];
@@ -361,8 +372,12 @@ async function findHighlights() {
           : `${state.highlights.length} highlight — ${state.selected.size} direkomendasikan untuk dirender`,
         short,
       );
-    }, () => setBusy(button, false));
+    }, () => {
+      state.busyJob = false;
+      setBusy(button, false);
+    });
   } catch (error) {
+    state.busyJob = false;
     setBusy(button, false);
     toast(error.message, true);
   }
@@ -442,9 +457,14 @@ function updateRenderButton() {
 }
 
 async function renderSelected() {
+  if (state.busyJob) {
+    toast("Ada proses yang masih berjalan.", true);
+    return;
+  }
   if (!state.sessionId || state.selected.size === 0) return;
   const button = $("renderBtn");
   setBusy(button, true, "Merender…");
+  state.busyJob = true;
   showJob("Merender klip");
   try {
     const { jobId } = await api("/api/render", "POST", {
@@ -454,12 +474,17 @@ async function renderSelected() {
     pollJob(jobId, (job) => {
       const errors = job.result?.errors || [];
       toast(errors.length ? `Selesai dengan ${errors.length} error` : "Klip selesai dirender", errors.length > 0);
-      state.selected = new Set();
+      state.busyJob = false;
       setBusy(button, false);
+      state.selected = new Set();
+      renderHighlights();
       location.hash = "#library";
-      loadSessions().catch((error) => toast(error.message, true));
-    }, () => setBusy(button, false));
+    }, () => {
+      state.busyJob = false;
+      setBusy(button, false);
+    });
   } catch (error) {
+    state.busyJob = false;
     setBusy(button, false);
     toast(error.message, true);
   }
@@ -490,8 +515,8 @@ function renderLibrary() {
             <div class="meta">
               <span>${esc(session.channel || "—")}</span>
               <span>${fmtDate(session.createdAt)}</span>
-              <span>${session.clipCount} klip</span>
-              <span>${session.highlightCount} highlight</span>
+              <span>${esc(session.clipCount)} klip</span>
+              <span>${esc(session.highlightCount)} highlight</span>
             </div>
           </div>
           <div class="actions">
@@ -648,7 +673,6 @@ function bindEvents() {
   $("topCookies").addEventListener("click", () => {
     if (location.hash !== "#create") {
       location.hash = "#create";
-      route();
     }
     $("cookieEditor").classList.remove("hidden");
     $("cookieEditor").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -794,7 +818,8 @@ function updateBrandPreview() {
   const path = $("watermark").value.trim();
   const image = $("previewWatermark");
   if (path) {
-    image.src = watermarkPreview || `/api/watermark?v=${Date.now()}`;
+    const src = watermarkPreview || "/api/watermark";
+    if (image.getAttribute("src") !== src) image.src = src;
     image.classList.remove("hidden");
   } else {
     image.removeAttribute("src");

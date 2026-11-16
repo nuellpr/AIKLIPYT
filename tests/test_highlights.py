@@ -174,6 +174,50 @@ class ChatTests(unittest.TestCase):
         with self.assertRaises(AIError):
             chat("http://127.0.0.1:9/v1", "", "m", [])
 
+    def test_api_key_is_not_forwarded_on_redirect(self):
+        stolen = {}
+        holder = {}
+
+        class Redirect(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{holder['port']}/steal")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        class Steal(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                stolen["path"] = self.path
+                stolen["auth"] = self.headers.get("Authorization")
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *args):
+                pass
+
+        steal = ThreadingHTTPServer(("127.0.0.1", 0), Steal)
+        holder["port"] = steal.server_address[1]
+        redirect = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+        threads = [
+            threading.Thread(target=server.serve_forever, daemon=True)
+            for server in (steal, redirect)
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            with self.assertRaises(AIError):
+                chat(f"http://127.0.0.1:{redirect.server_address[1]}/v1", "sk-secret", "m", [])
+        finally:
+            for server in (steal, redirect):
+                server.shutdown()
+                server.server_close()
+        self.assertNotIn("auth", stolen)
+
 
 class ExactCountPromptTests(unittest.TestCase):
     def test_prompt_requests_exact_count_and_excludes(self):

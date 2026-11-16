@@ -33,6 +33,7 @@ def list_models(base_url: str, key: str, timeout: float = 25.0) -> list[str]:
             raw = response.read(4_000_000)
     except urllib.error.HTTPError as exc:
         detail = exc.read(300).decode("utf-8", "replace").strip()
+        exc.close()
         message = f"Provider menolak permintaan (HTTP {exc.code})"
         raise ModelsError(f"{message}: {detail}" if detail else message) from exc
     except urllib.error.URLError as exc:
