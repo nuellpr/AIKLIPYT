@@ -25,7 +25,7 @@ from core.render import CAPTION_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 POSITIONS = {
     "top-left",
     "top-center",

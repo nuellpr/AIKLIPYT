@@ -2,6 +2,29 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.3] - 2026-11-17
+
+### Added
+- Lima gaya subtitle baru: Hormozi (huruf besar tebal), Karaoke (highlight per kata), Iman Gadzhi (minimalis), MrBeast (warna cerah dinamis), dan Bilingual (dua lapis dengan terjemahan AI).
+- Terjemahan Bilingual memakai penyedia AI yang sudah terhubung; bahasa tujuannya diatur lewat Bahasa output di Pengaturan.
+
+### Security
+- API key tidak lagi ikut terkirim saat penyedia AI mengalihkan permintaan ke alamat lain.
+- Respons AI dibatasi 4 MB dan koneksi yang gagal ditutup dengan benar.
+
+### Fixed
+- Video bisa di-seek sampai ke ujung: rentang byte negatif kini mengambil bagian akhir, bukan awal file.
+- Memulai job baru saat render masih berjalan tidak lagi menggagalkan job pertama.
+- Download yang menggantung kini benar-benar berhenti sesuai batas waktunya.
+- Klip setengah jadi tidak lagi dipakai ulang pada render berikutnya.
+- Penanda waktu 59,999 detik tidak lagi tampil sebagai detik ke-60.
+- Tombol tanpa ikon spinner kini tetap menampilkan status "Memproses…"; pilihan klip kembali sinkron setelah render.
+- Dua impor berjudul sama dalam satu detik tidak lagi saling menimpa, dan subtitle lama tidak terseret ke unduhan berikutnya.
+- Render tidak lagi memakai flag khusus Windows saat dijalankan di sistem lain.
+
+### Changed
+- Daftar gaya caption disatukan antara server dan antarmuka; sembilan gaya lama tetap berfungsi apa adanya.
+
 ## [1.0.2] - 2026-11-14
 
 ### Added
