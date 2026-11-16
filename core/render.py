@@ -384,6 +384,7 @@ def render_clip(
     watermark_position: str = "top-right",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
+    translations: list[str] | None = None,
     on_progress=None,
     on_log=None,
 ) -> Path:
@@ -406,6 +407,7 @@ def render_clip(
                 caption_style=caption_style,
                 credit_position=credit_position,
                 credit_opacity=credit_opacity,
+                translations=translations,
             ),
             encoding="utf-8",
         )

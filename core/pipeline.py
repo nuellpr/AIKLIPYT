@@ -14,14 +14,24 @@ from . import cookies as cookie_store
 from . import session as session_store
 from .assets import ffmpeg_path
 from .config import DATA, load
-from .highlights import AIError, build_messages, chat, extract_clips, select_clips
-from .render import render_clip
+from .highlights import AIError, LANGUAGES, build_messages, chat, extract_clips, select_clips, translate_groups
+from .render import group_words, render_clip
 from .subtitles import Word, parse_subtitle, slice_words, transcript
 from .ytdlp import YtdlpError, download_section, download_subtitle, pick_subtitle, video_info
 
 JOBS: dict[str, dict] = {}
 _lock = threading.RLock()
 TMP = DATA / "tmp"
+
+
+def _bilingual_translations(words, target, base, key, model, translate=None) -> list[str] | None:
+    lines = [" ".join(word.word for word in group) for group in group_words(words)]
+    if not lines:
+        return None
+    try:
+        return (translate or translate_groups)(lines, target, base, key, model)
+    except Exception:  # noqa: BLE001 - translation is optional; never fail the render
+        return None
 
 
 class JobError(RuntimeError):
@@ -278,6 +288,26 @@ def _render_worker(job: dict, params: dict) -> None:
                 clip_words = slice_words(stored_words, start, end)
                 duration = end - start
 
+                translations = None
+                if render_opts.get("captionStyle") == "bilingual" and clip_words:
+                    target = str(render_opts.get("outputLanguage") or config.get("outputLanguage") or "auto")
+                    if target == "auto":
+                        target = "en"
+                    target_name = LANGUAGES.get(target, target)
+                    from .secret import api_key
+
+                    translations = _bilingual_translations(
+                        clip_words,
+                        target_name,
+                        config["ai"]["baseUrl"],
+                        api_key(config),
+                        config["ai"]["model"],
+                    )
+                    if translations:
+                        _log(job, f"Translated captions to {target_name}")
+                    else:
+                        _log(job, "Translation unavailable; rendering single-layer captions")
+
                 def progress(percent: float, position=position) -> None:
                     _update(job, progress=((position + percent / 100) / total) * 100)
 
@@ -301,6 +331,7 @@ def _render_worker(job: dict, params: dict) -> None:
                     credit_position=render_opts.get("creditPosition", "bottom-center"),
                     logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),
                     credit_opacity=float(render_opts.get("creditOpacity", 1.0)),
+                    translations=translations,
                     on_progress=progress,
                     on_log=lambda message: _log(job, message),
                 )
