@@ -366,7 +366,29 @@
                 </select>
               </label>
             </div>
-            <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. 6 gaya Wayin: background, kotak sorot, fokus kata, garis bawah, outline, dan temp-0. 5 gaya kreator: Hormozi, Karaoke, Gadzhi, MrBeast, dan Bilingual. Bilingual memakai endpoint AI untuk menerjemahkan tiap grup kata ke Bahasa Output.</p>
+            <label class="field">
+              <span>Font subtitle</span>
+              <select id="captionFont">
+                <option value="Arial Black">Arial Black (tebal bawaan)</option>
+                <option value="Arial">Arial</option>
+                <option value="Impact">Impact (tebal bawaan)</option>
+                <option value="Segoe UI">Segoe UI</option>
+                <option value="Bahnschrift">Bahnschrift</option>
+                <option value="Verdana">Verdana</option>
+                <option value="Tahoma">Tahoma</option>
+                <option value="Trebuchet MS">Trebuchet MS</option>
+                <option value="Calibri">Calibri</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Comic Sans MS">Comic Sans MS</option>
+                <option value="Consolas">Consolas</option>
+              </select>
+            </label>
+            <label class="check">
+              <input id="captionBold" type="checkbox">
+              <span>Huruf subtitle tebal (Bold)</span>
+            </label>
+            <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Font <b>Arial Black</b> dan <b>Impact</b> selalu tebal dari bawaan font; pilih font lain (mis. Arial, Segoe UI, Verdana) untuk membedakan Bold/Normal. Gaya Gadzhi tetap tipis minimalis. Bilingual memakai endpoint AI untuk menerjemahkan tiap grup kata ke Bahasa output default di Pengaturan.</p>
             <label class="check">
               <input id="hook" type="checkbox">
               <span>Hook di awal klip</span>
@@ -383,8 +405,8 @@
               <span>Watermark (PNG/JPG)</span>
               <div class="file-row">
                 <input id="watermark" placeholder="Pilih gambar atau tempel path" spellcheck="false">
-                <button id="pickWatermark" class="btn btn-ghost" type="button">Pilih</button>
-                <button id="clearWatermark" class="btn btn-ghost" type="button">Hapus</button>
+                <button id="pickWatermark" class="btn ghost" type="button">Pilih</button>
+                <button id="clearWatermark" class="btn ghost" type="button">Hapus</button>
               </div>
               <input id="watermarkFile" type="file" accept="image/png,image/jpeg" class="hidden">
               <p class="hint">PNG transparan atau JPG. Maksimal 6 MB, otomatis diperkecil.</p>
@@ -448,7 +470,7 @@
             <p class="eyebrow">TENTANG APLIKASI</p>
             <h1>AIKLIPYT</h1>
           </div>
-          <span class="tag">v1.0.3</span>
+          <span class="tag">v1.0.4</span>
         </div>
 
         <div class="about-grid">
@@ -470,7 +492,7 @@
           <section class="panel">
             <div class="panel-head"><h2>Detail</h2><span class="tag">edisi lokal</span></div>
             <dl class="about-meta">
-              <div><dt>Versi</dt><dd>1.0.3</dd></div>
+              <div><dt>Versi</dt><dd>1.0.4</dd></div>
               <div><dt>Mesin</dt><dd>Python 3.11+</dd></div>
               <div><dt>Render</dt><dd>FFmpeg 8.0.1</dd></div>
               <div><dt>Subtitle</dt><dd>yt-dlp</dd></div>
@@ -478,7 +500,7 @@
             </dl>
             <div class="about-links">
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT" target="_blank" rel="noreferrer">GitHub</a>
-              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.3" target="_blank" rel="noreferrer">Rilis v1.0.3</a>
+              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4" target="_blank" rel="noreferrer">Rilis v1.0.4</a>
               <a class="btn ghost small" href="https://www.figma.com/design/P83HXlUX9HexU1lZJeWkRa" target="_blank" rel="noreferrer">Desain Figma</a>
             </div>
           </section>
@@ -496,7 +518,7 @@
     </main>
 
     <footer>
-      <span>AIKLIPYT v1.0.3 · lokal, tanpa telemetri</span>
+      <span>AIKLIPYT v1.0.4 · lokal, tanpa telemetri</span>
       <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
     </footer>
   </div>

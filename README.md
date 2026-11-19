@@ -5,10 +5,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versi-v1.0.3-blue" alt="Versi v1.0.3">
+  <img src="https://img.shields.io/badge/versi-v1.0.4-blue" alt="Versi v1.0.4">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/tests-70%20passing-brightgreen" alt="70 test lulus">
+  <img src="https://img.shields.io/badge/tests-78%20passing-brightgreen" alt="78 test lulus">
 </p>
 
 **Studio klip YouTube yang berjalan di komputermu sendiri.** Tempel URL, biarkan AI
@@ -20,7 +20,7 @@ Ditulis ulang dari nol berdasarkan perilaku yang diamati dari **YT Short Clipper
 (v2.0.7-beta) lewat analisis REA. Ini **bukan salinan** kode atau aset aplikasi asli —
 yang sama hanya alur kerjanya; implementasinya bersih dan terbuka.
 
-**Rilis terbaru:** [v1.0.3](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.3)
+**Rilis terbaru:** [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4)
 · [Riwayat perubahan](CHANGELOG.md)
 
 ## Daftar isi
@@ -53,6 +53,7 @@ dan mudah diubah. UI berjalan di browser pada `http://127.0.0.1:8765`.
 - Klip 9:16 dengan latar hitam atau blur; opsi 16:9 dan durasi 5–600 detik.
 - **14 gaya subtitle**, termasuk karaoke per kata dan subtitle bilingual dua lapis
   dengan terjemahan AI — lihat [Gaya subtitle](#gaya-subtitle).
+- Pilihan **13 font subtitle** dan opsi **Huruf subtitle tebal (Bold)** di Pengaturan.
 - Warna aksen caption dan hook yang bisa diatur; hook di awal klip, teks kredit, dan
   watermark PNG/JPG dengan 9 posisi serta transparansi yang bisa di-preview.
 - Encoder hardware (NVENC/QSV/AMF) dipilih lewat uji encode nyata, lalu fallback
@@ -100,7 +101,7 @@ data/
   config.json          # setelan (API key terenkripsi)
   cookies.txt          # cookies YouTube terfilter
   sessions/<id>/       # session.json, words.json, transcript.txt
-  outputs/<id>/        # clip_01.mp4, clips.json, captions.ass
+  outputs/<id>/        # clip_01.mp4, clip_01.ass, clips.json
   watermarks/          # gambar watermark hasil unggahan
   tmp/                 # file sementara, dibersihkan otomatis
 ```
@@ -194,14 +195,15 @@ AIKLIPYT/
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Saat ini **70 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
-dan memverifikasi output 1080x1920, termasuk kelima gaya kreator. Test DPAPI hanya
-berjalan di Windows.
+Saat ini **78 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
+dan memverifikasi output 1080x1920, termasuk kelima gaya kreator serta pilihan font
+dan bold. Test DPAPI hanya berjalan di Windows.
 
 ## Rilis
 
 | Versi | Tanggal | Catatan |
 |---|---|---|
+| [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4) | 2026-11-19 | Pilihan font subtitle & toggle Bold, perbaikan lookup `assets/ffmpeg`, render ASS & UI |
 | [v1.0.3](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.3) | 2026-11-17 | 5 gaya subtitle kreator, bilingual, pengerasan API & media |
 | [v1.0.2](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.2) | 2026-11-14 | Watermark & kredit, jumlah klip tepat |
 | [v1.0.1](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.1) | 2026-11-13 | 6 gaya Wayin, halaman Tentang, logo |
@@ -251,7 +253,7 @@ terkirim jika penyedia AI mengalihkan permintaan ke alamat lain.
 | Auto-update | Cek server + download | Tidak ada |
 | Durasi klip | 58–120 detik | Bisa diatur 5–600 detik |
 | Gaya subtitle | — | 14 gaya, termasuk bilingual |
-| Tests | Tidak diketahui | 70 unit/integration test |
+| Tests | Tidak diketahui | 78 unit/integration test |
 
 ## Batasan yang jujur
 
@@ -273,4 +275,4 @@ terkirim jika penyedia AI mengalihkan permintaan ke alamat lain.
 
 ---
 
-AIKLIPYT v1.0.3 · lokal, tanpa telemetri.
+AIKLIPYT v1.0.4 · lokal, tanpa telemetri.

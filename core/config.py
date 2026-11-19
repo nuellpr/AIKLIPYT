@@ -33,6 +33,8 @@ DEFAULTS: dict[str, Any] = {
         "hookSeconds": 3.0,
         "captionColor": "#FFD700",
         "captionStyle": "highlight",
+        "captionFont": "Arial Black",
+        "captionBold": True,
         "watermark": "",
         "watermarkPosition": "top-right",
         "watermarkOpacity": 0.9,

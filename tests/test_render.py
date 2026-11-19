@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.assets import ffmpeg_path  # noqa: E402
-from core.render import CAPTION_STYLES, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
+from core.render import CAPTION_FONTS, CAPTION_STYLES, MRBEAST_COLORS, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
 from core.subtitles import Word  # noqa: E402
 
 FFMPEG = ffmpeg_path()
@@ -90,8 +90,8 @@ class AssTests(unittest.TestCase):
 
     def test_hormozi_style(self):
         ass = build_ass([Word("halo", 0.2, 0.7)], caption_style="hormozi")
-        self.assertIn(r"\bord12", ass)
-        self.assertIn("HALO", ass)
+        line = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
+        self.assertLess(line.index(r"\bord12"), line.index("HALO"))
 
     def test_karaoke_style(self):
         words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
@@ -112,8 +112,29 @@ class AssTests(unittest.TestCase):
     def test_mrbeast_style(self):
         words = [Word("a", 0.1, 0.4), Word("b", 0.5, 0.8), Word("c", 0.9, 1.2)]
         ass = build_ass(words, caption_style="mrbeast")
-        self.assertIn(r"\fscx120", ass)
-        self.assertIn("A", ass)
+        first_line = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
+        self.assertIn(r"\fscx120", first_line)
+        self.assertLess(first_line.index(r"\bord8\3c&HFFFFFF&"), first_line.index("}A"))
+        self.assertIn("&H000000FF&", MRBEAST_COLORS)
+
+    def test_caption_font_and_bold(self):
+        words = [Word("halo", 0.2, 0.7)]
+        regular = build_ass(words, caption_font="Segoe UI", caption_bold=False)
+        self.assertIn("Style: Caption,Segoe UI,62,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,", regular)
+        self.assertIn("Style: CaptionBg,Segoe UI,62,&H00FFFFFF,&H000000FF,&H00031410,&H80000000,0,", regular)
+        self.assertIn("Style: CaptionAlt,Segoe UI,46,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,", regular)
+        bold = build_ass(words, caption_font="Georgia", caption_bold=True)
+        self.assertIn("Style: Caption,Georgia,62,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,", bold)
+        gadzhi_custom = build_ass(words, caption_style="gadzhi", caption_font="Georgia")
+        self.assertIn(r"\fnGeorgia\b0", gadzhi_custom)
+        injected = build_ass(words, caption_font="Arial,99\nStyle: Evil")
+        self.assertIn("Style: Caption,Arial Black,", injected)
+        self.assertNotIn("Style: Evil", injected)
+        self.assertGreaterEqual(len(CAPTION_FONTS), 10)
+
+    def test_filter_complex_uses_custom_ass_file(self):
+        graph = _filter_complex(True, "black", True, None, 0.9, ass_file="clip_02.ass")
+        self.assertIn(",ass=clip_02.ass", graph)
 
     def test_bilingual_renders_translation_above(self):
         words = [Word("halo", 0.2, 0.7)]
@@ -184,6 +205,8 @@ class FfmpegRenderTests(unittest.TestCase):
                 hook_seconds=1.0,
             )
             self.assertTrue(output.is_file())
+            self.assertTrue((work / "out" / "clip_01.ass").is_file())
+            self.assertFalse((work / "out" / "captions.ass").exists())
             self.assertGreater(output.stat().st_size, 1000)
             self.assertEqual(probe_size(output, FFMPEG), (1080, 1920))
 
@@ -215,9 +238,24 @@ class FfmpegRenderTests(unittest.TestCase):
                     1.5,
                     portrait=False,
                     caption_style=style,
+                    caption_font="Segoe UI" if style == "highlight" else "Arial Black",
+                    caption_bold=False if style == "bilingual" else True,
                 )
                 self.assertTrue(output.is_file(), style)
                 self.assertGreater(output.stat().st_size, 1000, style)
+            custom_out = work / "out_custom_font.mp4"
+            render_clip(
+                source,
+                custom_out,
+                words,
+                FFMPEG,
+                1.5,
+                portrait=False,
+                caption_font="Segoe UI",
+                caption_bold=False,
+            )
+            self.assertTrue(custom_out.is_file())
+            self.assertGreater(custom_out.stat().st_size, 1000)
 
 
 if __name__ == "__main__":

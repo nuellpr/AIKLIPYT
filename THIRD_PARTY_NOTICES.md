@@ -1,6 +1,6 @@
 # Third-party notices
 
-The Windows release package (`AIKLIPYT-v1.0.0-win64.zip`) bundles these
+The Windows release package (`AIKLIPYT-v*-win64.zip`) bundles these
 executables so the app works without separate downloads:
 
 ## FFmpeg 8.0.1-full_build (gyan.dev)

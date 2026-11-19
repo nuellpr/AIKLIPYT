@@ -21,11 +21,11 @@ from core import models as model_catalog
 from core import pipeline, session as session_store
 from core.assets import deno_path, ffmpeg_path
 from core.config import DATA, ROOT, ensure_dirs, load, save
-from core.render import CAPTION_STYLES
+from core.render import CAPTION_FONTS, CAPTION_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 POSITIONS = {
     "top-left",
     "top-center",
@@ -45,6 +45,11 @@ MAX_BODY = 8 * 1024 * 1024
 def _normalize_caption_style(config: dict) -> None:
     if config["render"].get("captionStyle") not in CAPTION_STYLES:
         config["render"]["captionStyle"] = "highlight"
+
+
+def _normalize_caption_font(config: dict) -> None:
+    if config["render"].get("captionFont") not in CAPTION_FONTS:
+        config["render"]["captionFont"] = "Arial Black"
 
 
 def _public_config() -> dict:
@@ -151,7 +156,7 @@ def _apply_settings(body: dict) -> dict:
                         config[section][key] = float(value)
                     except (TypeError, ValueError):
                         continue
-                elif key in ("portrait", "captions", "hook"):
+                elif key in ("portrait", "captions", "hook", "captionBold"):
                     config[section][key] = bool(value)
                 elif isinstance(value, str):
                     config[section][key] = value.strip()
@@ -163,6 +168,7 @@ def _apply_settings(body: dict) -> dict:
     color = str(config["render"].get("captionColor") or "").strip()
     config["render"]["captionColor"] = color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else "#FFD700"
     _normalize_caption_style(config)
+    _normalize_caption_font(config)
     if config["render"].get("watermarkPosition") not in POSITIONS:
         config["render"]["watermarkPosition"] = "top-right"
     if config["render"].get("creditPosition") not in POSITIONS:
@@ -500,6 +506,7 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
     ensure_dirs()
+    pipeline.cleanup_tmp()
     server = _serve(args.port)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"AIKLIPYT {VERSION} running at {url}")

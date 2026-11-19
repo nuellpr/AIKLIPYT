@@ -2,6 +2,21 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.4] - 2026-11-19
+
+### Added
+- Pilihan **Font subtitle** (13 font bawaan Windows: Arial Black, Arial, Impact, Segoe UI, Bahnschrift, Verdana, Tahoma, Trebuchet MS, Calibri, Georgia, Times New Roman, Comic Sans MS, Consolas) di **Pengaturan → Klip**.
+- Toggle **Huruf subtitle tebal (Bold)** untuk mengatur subtitle tebal atau normal.
+
+### Fixed
+- Pencarian `ffmpeg.exe` di `core/assets.py` kini mengecek `assets/ffmpeg/` sesuai struktur paket ZIP rilis sebelum fallback ke `ffmpeg/` dan `PATH`.
+- Gaya subtitle `hormozi` dan `mrbeast` kini menerapkan outline tebal sejak kata aktif pertama, dan warna merah pada palet `mrbeast` menggunakan kode BGR ASS yang benar.
+- File subtitle ASS ditulis per klip (`clip_01.ass`, dst.) alih-alih menimpa `captions.ass` yang sama.
+- Transparansi watermark `0%` kini benar-benar melewati overlay watermark alih-alih di-clamp ke 5%.
+- Sisa folder sementara di `data/tmp/` dari render yang terhenti dibersihkan otomatis saat server dinyalakan.
+- Mode Bilingual tidak lagi memanggil API terjemahan saat caption dimatikan, dan mencatat alasan error terjemahan di log job.
+- Fallback thumbnail di Pustaka tidak lagi memakai inline `onerror` yang diblokir CSP, dan class tombol watermark diperbaiki ke `.btn.ghost`.
+
 ## [1.0.3] - 2026-11-17
 
 ### Added

@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from server import (  # noqa: E402
     Handler,
+    _normalize_caption_font,
     _normalize_caption_style,
     _model_auth,
     _origin_allowed,
@@ -163,6 +164,31 @@ class CaptionStyleTests(unittest.TestCase):
         config = {"render": {"captionStyle": "nonsense"}}
         _normalize_caption_style(config)
         self.assertEqual(config["render"]["captionStyle"], "highlight")
+
+
+class CaptionFontTests(unittest.TestCase):
+    def test_all_caption_fonts_are_accepted(self):
+        from core.render import CAPTION_FONTS
+
+        for font in CAPTION_FONTS:
+            config = {"render": {"captionFont": font}}
+            _normalize_caption_font(config)
+            self.assertEqual(config["render"]["captionFont"], font)
+
+    def test_unknown_font_falls_back(self):
+        config = {"render": {"captionFont": "NotAFont,99"}}
+        _normalize_caption_font(config)
+        self.assertEqual(config["render"]["captionFont"], "Arial Black")
+
+    def test_ui_font_options_match_whitelist(self):
+        import re
+        from core.render import CAPTION_FONTS
+
+        html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        block = re.search(r'<select id="captionFont">(.*?)</select>', html, re.S)
+        self.assertIsNotNone(block)
+        values = re.findall(r'<option value="([^"]+)">', block.group(1))
+        self.assertEqual(tuple(values), CAPTION_FONTS)
 
 
 if __name__ == "__main__":

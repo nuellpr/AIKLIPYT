@@ -20,11 +20,11 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,1,2,{margin},{margin},{bottom_margin},1
-Style: CaptionBg,Arial Black,{caption_size},&H00FFFFFF,&H000000FF,&H00031410,&H80000000,-1,0,0,0,100,100,0,0,3,18,0,2,{margin},{margin},{bottom_margin},1
+Style: Caption,{caption_font},{caption_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,{caption_bold},0,0,0,100,100,0,0,1,4,1,2,{margin},{margin},{bottom_margin},1
+Style: CaptionBg,{caption_font},{caption_size},&H00FFFFFF,&H000000FF,&H00031410,&H80000000,{caption_bold},0,0,0,100,100,0,0,3,18,0,2,{margin},{margin},{bottom_margin},1
 Style: Hook,Arial Black,{hook_size},{hook_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,8,{margin},{margin},{top_margin},1
 Style: Credit,Arial,{credit_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,3,{margin},{margin},{margin},1
-Style: CaptionAlt,Arial,{alt_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,{margin},{margin},{alt_margin},1
+Style: CaptionAlt,{caption_font},{alt_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,{caption_bold},0,0,0,100,100,0,0,1,3,1,2,{margin},{margin},{alt_margin},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -47,12 +47,27 @@ CAPTION_STYLES = (
     "mrbeast",
     "bilingual",
 )
+CAPTION_FONTS = (
+    "Arial Black",
+    "Arial",
+    "Impact",
+    "Segoe UI",
+    "Bahnschrift",
+    "Verdana",
+    "Tahoma",
+    "Trebuchet MS",
+    "Calibri",
+    "Georgia",
+    "Times New Roman",
+    "Comic Sans MS",
+    "Consolas",
+)
 MRBEAST_COLORS = (
     "&H0000D7FF&",  # gold (default accent)
     "&H0000FF00&",  # green
     "&H00FF00FF&",  # magenta
-    "&H0000FFFF&",  # red
-    "&H00FFD700&",  # blue-violet
+    "&H000000FF&",  # red (ASS BGR)
+    "&H00FFD700&",  # cyan
     "&H00FF8000&",  # sky blue
 )
 
@@ -136,6 +151,8 @@ def build_ass(
     height: int = 1920,
     caption_color: str = "#FFD700",
     caption_style: str = "highlight",
+    caption_font: str = "Arial Black",
+    caption_bold: bool = True,
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
     translations: list[str] | None = None,
@@ -145,9 +162,16 @@ def build_ass(
     accent = _ass_color(caption_color)
     if caption_style not in CAPTION_STYLES:
         caption_style = "highlight"
+    if caption_font not in CAPTION_FONTS:
+        caption_font = "Arial Black"
+    bold_flag = -1 if caption_bold else 0
+    gadzhi_font = "Arial" if caption_font == "Arial Black" else caption_font
+    gadzhi_base = rf"{{\fn{gadzhi_font}\b0\bord1\shad0\3c&H000000&}}"
     header = _ASS_HEADER.format(
         width=width,
         height=height,
+        caption_font=caption_font,
+        caption_bold=bold_flag,
         caption_size=62 if portrait else 54,
         hook_size=86 if portrait else 64,
         credit_size=40 if portrait else 32,
@@ -213,13 +237,12 @@ def build_ass(
                     elif caption_style == "temp-0":
                         parts.append(f"{{\\shad0\\c{accent}\\3c&H000000&\\bord4}}" + token + r"{\rCaption}")
                     elif caption_style == "hormozi":
-                        parts.append(_color_tag(accent) + r"{\fscx118\fscy118}" + token + r"{\rCaption}" + r"{\bord12\3c&H000000&\shad2}")
+                        parts.append(f"{{\\c{accent}\\bord12\\3c&H000000&\\shad2\\fscx118\\fscy118}}" + token + r"{\rCaption}")
                     elif caption_style == "gadzhi":
-                        base = r"{\fnArial\b0\bord1\shad0\3c&H000000&}"
-                        parts.append(_color_tag(accent) + base + token + r"{\rCaption}" + base)
+                        parts.append(_color_tag(accent) + gadzhi_base + token + r"{\rCaption}" + gadzhi_base)
                     elif caption_style == "mrbeast":
                         color = MRBEAST_COLORS[other_index % len(MRBEAST_COLORS)]
-                        parts.append(f"{{\\c{color}\\fscx120\\fscy120}}" + token + r"{\rCaption}" + r"{\bord8\3c&HFFFFFF&\shad2}")
+                        parts.append(f"{{\\c{color}\\bord8\\3c&HFFFFFF&\\shad2\\fscx120\\fscy120}}" + token + r"{\rCaption}")
                     else:
                         parts.append(_color_tag(accent) + token + _WHITE)
                 else:
@@ -232,7 +255,7 @@ def build_ass(
                     elif caption_style == "hormozi":
                         parts.append(r"{\bord12\3c&H000000&\shad2}" + token)
                     elif caption_style == "gadzhi":
-                        parts.append(r"{\fnArial\b0\bord1\shad0\3c&H000000&}" + token)
+                        parts.append(gadzhi_base + token)
                     elif caption_style == "mrbeast":
                         parts.append(r"{\bord8\3c&HFFFFFF&\shad2}" + token)
                     else:
@@ -346,6 +369,7 @@ def _filter_complex(
     logo: Path | None,
     logo_opacity: float,
     logo_position: str = "top-right",
+    ass_file: str = "captions.ass",
 ) -> str:
     chain = _portrait_chain(background) if portrait else (
         "scale=1920:1080:force_original_aspect_ratio=decrease,"
@@ -353,11 +377,11 @@ def _filter_complex(
     )
     graph = f"[0:v]{chain}"
     if use_ass:
-        graph += ",ass=captions.ass"
+        graph += f",ass={ass_file}"
     if logo is not None:
         x, y = _logo_xy(logo_position)
         graph += "[base];[1:v]scale=200:-2,format=rgba,colorchannelmixer=aa={:.2f}[logo];[base][logo]overlay={}:{}[v]".format(
-            max(0.05, min(1.0, logo_opacity)), x, y
+            max(0.0, min(1.0, logo_opacity)), x, y
         )
     else:
         graph += "[v]"
@@ -381,6 +405,8 @@ def render_clip(
     logo_opacity: float = 0.9,
     caption_color: str = "#FFD700",
     caption_style: str = "highlight",
+    caption_font: str = "Arial Black",
+    caption_bold: bool = True,
     watermark_position: str = "top-right",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
@@ -392,9 +418,11 @@ def render_clip(
         raise RuntimeError("ffmpeg was not found. Put ffmpeg.exe in assets/ffmpeg or install it on PATH.")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     workdir = output_path.parent
+    ass_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", output_path.stem).strip("._") or "captions"
+    ass_name = f"{ass_stem}.ass"
     use_ass = bool((captions and words) or (hook and hook_text.strip()) or credit.strip())
     if use_ass:
-        (workdir / "captions.ass").write_text(
+        (workdir / ass_name).write_text(
             build_ass(
                 words if captions else [],
                 hook_text if hook else "",
@@ -405,6 +433,8 @@ def render_clip(
                 1920 if portrait else 1080,
                 caption_color=caption_color,
                 caption_style=caption_style,
+                caption_font=caption_font,
+                caption_bold=caption_bold,
                 credit_position=credit_position,
                 credit_opacity=credit_opacity,
                 translations=translations,
@@ -412,11 +442,11 @@ def render_clip(
             encoding="utf-8",
         )
 
-    logo = Path(watermark) if watermark and Path(watermark).is_file() else None
-    if watermark and logo is None and on_log:
+    logo = Path(watermark) if watermark and logo_opacity > 0 and Path(watermark).is_file() else None
+    if watermark and logo_opacity > 0 and logo is None and on_log:
         on_log("Watermark file not found, skipping logo")
 
-    graph = _filter_complex(portrait, background, use_ass, logo, logo_opacity, watermark_position)
+    graph = _filter_complex(portrait, background, use_ass, logo, logo_opacity, watermark_position, ass_file=ass_name)
     base_cmd = [
         ffmpeg,
         "-y",

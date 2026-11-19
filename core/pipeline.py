@@ -24,13 +24,33 @@ _lock = threading.RLock()
 TMP = DATA / "tmp"
 
 
-def _bilingual_translations(words, target, base, key, model, translate=None) -> list[str] | None:
+def cleanup_tmp(tmp_dir: Path | None = None) -> int:
+    """Remove leftover temp folders from interrupted runs; call at server startup only."""
+    root = tmp_dir or TMP
+    if not root.is_dir():
+        return 0
+    removed = 0
+    for entry in list(root.iterdir()):
+        try:
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _bilingual_translations(words, target, base, key, model, translate=None, on_error=None) -> list[str] | None:
     lines = [" ".join(word.word for word in group) for group in group_words(words)]
     if not lines:
         return None
     try:
         return (translate or translate_groups)(lines, target, base, key, model)
-    except Exception:  # noqa: BLE001 - translation is optional; never fail the render
+    except Exception as exc:  # noqa: BLE001 - translation is optional; never fail the render
+        if on_error:
+            on_error(exc)
         return None
 
 
@@ -289,24 +309,27 @@ def _render_worker(job: dict, params: dict) -> None:
                 duration = end - start
 
                 translations = None
-                if render_opts.get("captionStyle") == "bilingual" and clip_words:
+                if render_opts.get("captions", True) and render_opts.get("captionStyle") == "bilingual" and clip_words:
                     target = str(render_opts.get("outputLanguage") or config.get("outputLanguage") or "auto")
                     if target == "auto":
                         target = "en"
                     target_name = LANGUAGES.get(target, target)
                     from .secret import api_key
 
+                    error_detail: list[str] = []
                     translations = _bilingual_translations(
                         clip_words,
                         target_name,
                         config["ai"]["baseUrl"],
                         api_key(config),
                         config["ai"]["model"],
+                        on_error=lambda exc: error_detail.append(str(exc)),
                     )
                     if translations:
                         _log(job, f"Translated captions to {target_name}")
                     else:
-                        _log(job, "Translation unavailable; rendering single-layer captions")
+                        reason = f" ({error_detail[0]})" if error_detail else ""
+                        _log(job, f"Translation unavailable{reason}; rendering single-layer captions")
 
                 def progress(percent: float, position=position) -> None:
                     _update(job, progress=((position + percent / 100) / total) * 100)
@@ -327,6 +350,8 @@ def _render_worker(job: dict, params: dict) -> None:
                     watermark=render_opts.get("watermark", ""),
                     caption_color=render_opts.get("captionColor", "#FFD700"),
                     caption_style=render_opts.get("captionStyle", "highlight"),
+                    caption_font=render_opts.get("captionFont", "Arial Black"),
+                    caption_bold=bool(render_opts.get("captionBold", True)),
                     watermark_position=render_opts.get("watermarkPosition", "top-right"),
                     credit_position=render_opts.get("creditPosition", "bottom-center"),
                     logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),

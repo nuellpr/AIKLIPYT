@@ -226,6 +226,8 @@ function applySettings() {
     ? config.render.captionColor
     : "#ffd700";
   $("captionStyle").value = config.render?.captionStyle || "highlight";
+  $("captionFont").value = config.render?.captionFont || "Arial Black";
+  $("captionBold").checked = config.render?.captionBold !== false;
   $("hook").checked = config.render?.hook !== false;
   $("hookSeconds").value = config.render?.hookSeconds ?? 3;
   $("watermark").value = config.render?.watermark || "";
@@ -505,7 +507,7 @@ function renderLibrary() {
   list.innerHTML = state.sessions
     .map((session) => {
       const thumb = session.thumbnail
-        ? `<img class="thumb" src="${esc(session.thumbnail)}" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;thumb-fallback&quot;>▦</div>'">`
+        ? `<img class="thumb" src="${esc(session.thumbnail)}" alt="" loading="lazy">`
         : `<div class="thumb-fallback">▦</div>`;
       return `
         <article class="session-card" data-id="${esc(session.id)}">
@@ -614,6 +616,8 @@ async function saveSettings() {
         captions: $("captions").checked,
         captionColor: $("captionColor").value,
         captionStyle: $("captionStyle").value,
+        captionFont: $("captionFont").value,
+        captionBold: $("captionBold").checked,
         hook: $("hook").checked,
         hookSeconds: Number($("hookSeconds").value),
         watermark: $("watermark").value.trim(),
@@ -737,6 +741,18 @@ function bindEvents() {
   $("refreshLibrary").addEventListener("click", () => {
     loadSessions().catch((error) => toast(error.message, true));
   });
+  $("libraryList").addEventListener(
+    "error",
+    (event) => {
+      const img = event.target;
+      if (!(img instanceof HTMLImageElement) || !img.classList.contains("thumb")) return;
+      const fallback = document.createElement("div");
+      fallback.className = "thumb-fallback";
+      fallback.textContent = "▦";
+      img.replaceWith(fallback);
+    },
+    true,
+  );
   $("libraryList").addEventListener("click", async (event) => {
     const action = event.target.closest("[data-action]")?.dataset.action;
     if (!action) return;
