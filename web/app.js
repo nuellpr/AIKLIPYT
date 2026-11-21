@@ -216,6 +216,7 @@ function applySettings() {
     ? "Tersimpan aman — isi hanya untuk mengganti"
     : "Belum ada key — tempel API key di sini";
   $("settingsOutputLanguage").value = config.outputLanguage || "auto";
+  $("outputLanguage").value = config.outputLanguage || "auto";
   $("minSeconds").value = config.clip?.minSeconds ?? 20;
   $("maxSeconds").value = config.clip?.maxSeconds ?? 120;
   $("padding").value = config.clip?.padding ?? 0.25;
@@ -230,6 +231,8 @@ function applySettings() {
   $("captionBold").checked = config.render?.captionBold !== false;
   $("hook").checked = config.render?.hook !== false;
   $("hookSeconds").value = config.render?.hookSeconds ?? 3;
+  $("hookStyle").value = config.render?.hookStyle || "classic";
+  syncStylePickers();
   $("watermark").value = config.render?.watermark || "";
   $("credit").value = config.render?.credit || "";
   $("watermarkOpacity").value = Math.round((config.render?.watermarkOpacity ?? 0.9) * 100);
@@ -241,6 +244,104 @@ function applySettings() {
   $("ffmpegPath").value = config.paths?.ffmpeg || "";
   $("denoPath").value = config.paths?.deno || "";
   updateAssetStatus();
+  updateLivePreview();
+}
+
+function extractYoutubeId(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    let id = "";
+    if (host === "youtu.be") id = parsed.pathname.split("/").filter(Boolean)[0] || "";
+    else if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      if (parsed.pathname === "/watch") id = parsed.searchParams.get("v") || "";
+      else {
+        const match = parsed.pathname.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]{11})/);
+        if (match) id = match[1];
+      }
+    }
+    return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : "";
+  } catch {
+    return "";
+  }
+}
+
+function updateLivePreview(overrideThumb) {
+  const phone = $("previewPhone");
+  if (!phone) return;
+  const render = state.config?.render || {};
+  const portrait = render.portrait !== false;
+  const background = render.background || "black";
+  const showCaptions = render.captions !== false;
+  const showHook = render.hook !== false;
+  const accent = /^#[0-9a-f]{6}$/i.test(render.captionColor || "") ? render.captionColor : "#FFD700";
+  const style = render.captionStyle || "highlight";
+  const hookStyle = render.hookStyle || "classic";
+  const font = render.captionFont || "Arial Black";
+  const bold = render.captionBold !== false;
+
+  const videoId = extractYoutubeId($("url")?.value);
+  const thumbUrl = overrideThumb || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : "");
+  const thumb = $("previewThumb");
+  const bg = $("previewBg");
+  if (thumbUrl) {
+    if (thumb.getAttribute("src") !== thumbUrl) thumb.src = thumbUrl;
+    thumb.classList.remove("hidden");
+    phone.classList.add("has-thumb");
+    if (portrait && background === "blurred") {
+      if (bg.getAttribute("src") !== thumbUrl) bg.src = thumbUrl;
+      bg.classList.remove("hidden");
+    } else {
+      bg.classList.add("hidden");
+    }
+  } else {
+    thumb.removeAttribute("src");
+    thumb.classList.add("hidden");
+    bg.removeAttribute("src");
+    bg.classList.add("hidden");
+    phone.classList.remove("has-thumb");
+  }
+
+  phone.classList.toggle("is-landscape", !portrait);
+  phone.style.setProperty("--preview-accent", accent);
+  phone.style.setProperty("--preview-font", style === "gadzhi" && font === "Arial Black" ? "Arial" : font);
+  phone.style.setProperty("--preview-weight", style === "gadzhi" ? "400" : bold ? "800" : "400");
+
+  $("previewRatio").textContent = portrait ? "9:16" : "16:9";
+  $("previewFormat").textContent = portrait ? "● 9:16" : "● 16:9";
+  $("previewStyleTag").textContent = style;
+  const hookNode = $("previewHook");
+  hookNode.className = `phone-hook hook-${hookStyle}${showHook ? "" : " hidden"}`;
+  $("previewCaptionsWrap").classList.toggle("hidden", !showCaptions);
+  $("previewCaptionAlt").classList.toggle("hidden", style !== "bilingual");
+  $("previewCaptions").className = `phone-captions style-${style}`;
+  const note = $("previewCaptionNote");
+  if (note) {
+    const dims = portrait ? "1080 × 1920" : "1920 × 1080";
+    const bgLabel = portrait ? (background === "blurred" ? "latar blur" : "latar hitam") : "layar penuh";
+    note.textContent = thumbUrl
+      ? `Preview ${dims} (${bgLabel}) · gaya ${style} · font ${font}${bold ? " tebal" : ""}.`
+      : "Tempel URL YouTube untuk melihat preview thumbnail, hook, dan gaya subtitle dari Pengaturan.";
+  }
+}
+
+function applyVersion(version) {
+  if (!version) return;
+  document.querySelectorAll("[data-version]").forEach((node) => { node.textContent = version; });
+  document.querySelectorAll("[data-version-tag]").forEach((node) => { node.textContent = `v${version}`; });
+  document.querySelectorAll("[data-release-link]").forEach((node) => {
+    node.href = `https://github.com/nuellpr/AIKLIPYT/releases/tag/v${version}`;
+    node.textContent = `Rilis v${version}`;
+  });
+}
+
+function setPipeStep(doneCount) {
+  [1, 2, 3].forEach((step) => {
+    const node = $(`pipeStep${step}`);
+    if (node) node.classList.toggle("is-done", step <= doneCount);
+  });
 }
 
 async function loadState() {
@@ -248,6 +349,7 @@ async function loadState() {
   state.config = data.config;
   state.cookies = data.cookies;
   state.assets = data.assets;
+  applyVersion(data.version);
   applySettings();
   updateCookieStatus();
 }
@@ -298,29 +400,38 @@ function updateJob(job) {
 }
 
 function pollJob(jobId, onDone, onFail) {
-  clearInterval(state.jobTimer);
+  clearTimeout(state.jobTimer);
+  state.jobTimer = null;
+  let finished = false;
   const tick = async () => {
+    if (finished) return;
     try {
       const { job } = await api(`/api/jobs/${jobId}`);
       updateJob(job);
+      if (job.kind === "highlights") {
+        setPipeStep(job.status === "done" ? 2 : Number(job.progress) >= 30 ? 1 : 0);
+      } else if (job.kind === "render") {
+        setPipeStep(job.status === "done" ? 3 : 2);
+      }
       if (job.status !== "running") {
-        clearInterval(state.jobTimer);
+        finished = true;
         state.jobTimer = null;
         if (job.status === "done") onDone(job);
         else {
           toast(job.error || "Proses gagal", true);
           if (onFail) onFail(job);
         }
+        return;
       }
+      state.jobTimer = setTimeout(tick, 1200);
     } catch (error) {
-      clearInterval(state.jobTimer);
+      finished = true;
       state.jobTimer = null;
       toast(error.message, true);
       if (onFail) onFail();
     }
   };
   tick();
-  state.jobTimer = setInterval(tick, 1200);
 }
 
 async function findHighlights() {
@@ -452,10 +563,11 @@ function renderHighlights() {
 function updateRenderButton() {
   const count = state.selected.size;
   const button = $("renderBtn");
-  button.textContent = count ? `Render ${count} klip` : "Pilih klip";
-  button.disabled = count === 0;
   const all = state.highlights.length > 0 && count === state.highlights.length;
   $("selectAll").textContent = all ? "Batalkan semua" : "Pilih semua";
+  if (state.busyJob) return;
+  button.textContent = count ? `Render ${count} klip` : "Pilih klip";
+  button.disabled = count === 0;
 }
 
 async function renderSelected() {
@@ -472,6 +584,7 @@ async function renderSelected() {
     const { jobId } = await api("/api/render", "POST", {
       sessionId: state.sessionId,
       indices: [...state.selected].sort((a, b) => a - b),
+      overwrite: true,
     });
     pollJob(jobId, (job) => {
       const errors = job.result?.errors || [];
@@ -540,8 +653,8 @@ async function openSession(sessionId) {
   const clips = session.clips || [];
   $("clipGrid").innerHTML = clips.length
     ? clips
-        .map(
-          (clip) => `
+      .map(
+        (clip) => `
         <article class="clip-card">
           <video controls preload="metadata" src="/api/media/${encodeURIComponent(sessionId)}/${encodeURIComponent(clip.file)}"></video>
           <div class="clip-info">
@@ -549,8 +662,8 @@ async function openSession(sessionId) {
             <div class="meta">${fmtTime(clip.start)} → ${fmtTime(clip.end)} · ${Math.round(clip.duration || 0)} dtk</div>
           </div>
         </article>`
-        )
-        .join("")
+      )
+      .join("")
     : `<div class="empty-line">Belum ada klip dirender untuk sesi ini.</div>`;
   $("libraryDetail").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -620,6 +733,7 @@ async function saveSettings() {
         captionBold: $("captionBold").checked,
         hook: $("hook").checked,
         hookSeconds: Number($("hookSeconds").value),
+        hookStyle: $("hookStyle").value,
         watermark: $("watermark").value.trim(),
         watermarkPosition: $("watermarkPosition").dataset.position || "top-right",
         credit: $("credit").value.trim(),
@@ -680,6 +794,20 @@ function bindEvents() {
     }
     $("cookieEditor").classList.remove("hidden");
     $("cookieEditor").scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  $("url").addEventListener("input", () => updateLivePreview());
+  $("previewThumb").addEventListener("error", () => {
+    $("previewThumb").classList.add("hidden");
+    $("previewBg").classList.add("hidden");
+    $("previewPhone").classList.remove("has-thumb");
+  });
+  $("highlightList").addEventListener("mouseover", (event) => {
+    const card = event.target.closest(".highlight[data-index]");
+    if (!card) return;
+    const clip = state.highlights[Number(card.dataset.index)];
+    if (!clip) return;
+    $("previewHook").textContent = clip.hook_text || clip.title || "Momen terbaik.";
+    $("previewMeta").textContent = `AI PICK · ${fmtTime(clip.start)}–${fmtTime(clip.end)}`;
   });
   $("numClips").addEventListener("input", () => {
     const value = Math.max(1, Math.min(20, Number($("numClips").value) || 1));
@@ -767,6 +895,25 @@ function bindEvents() {
       toast(error.message, true);
     }
   });
+  $("loadToCreate").addEventListener("click", () => {
+    const session = state.detail;
+    if (!session || !session.highlights?.length) {
+      toast("Sesi ini belum punya daftar highlight.", true);
+      return;
+    }
+    state.sessionId = session.id;
+    state.highlights = session.highlights;
+    if (session.url) $("url").value = session.url;
+    const rendered = new Set((session.clips || []).map((clip) => Number(clip.index)));
+    const remaining = state.highlights.map((_, index) => index).filter((index) => !rendered.has(index));
+    state.selected = new Set(remaining.length ? remaining : state.highlights.map((_, index) => index));
+    renderHighlights();
+    updateLivePreview(session.thumbnail);
+    setPipeStep(rendered.size ? 3 : 2);
+    $("resultsPanel").classList.remove("hidden");
+    location.hash = "#create";
+    $("resultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   $("openOutput").addEventListener("click", () => {
     if (state.detail) api("/api/open", "POST", { sessionId: state.detail.id, kind: "output" }).catch((error) => toast(error.message, true));
   });
@@ -777,6 +924,7 @@ function bindEvents() {
   $("saveSettings").addEventListener("click", saveSettings);
   $("refreshModels").addEventListener("click", refreshModels);
   $("model").addEventListener("change", toggleCustomModel);
+  $("baseUrl").addEventListener("input", syncBaseUrlPreset);
   $("baseUrlPreset").addEventListener("change", () => {
     const url = BASE_URLS[$("baseUrlPreset").value];
     if (url) $("baseUrl").value = url;
@@ -864,7 +1012,8 @@ function downscaleImage(file, max) {
       canvas.width = Math.max(1, Math.round(image.width * scale));
       canvas.height = Math.max(1, Math.round(image.height * scale));
       canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve(canvas.toDataURL("image/png"));
+      const mime = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
+      resolve(canvas.toDataURL(mime, 0.92));
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
@@ -915,8 +1064,157 @@ function bindBranding() {
   $("previewWatermark").addEventListener("error", () => $("previewWatermark").classList.add("hidden"));
 }
 
+const CAPTION_CARDS = [
+  ["highlight", "Highlight kata", "Default"],
+  ["hormozi", "Hormozi", "Populer"],
+  ["karaoke", "Karaoke", ""],
+  ["mrbeast", "MrBeast", ""],
+  ["bilingual", "Bilingual (2 bahasa)", "AI"],
+  ["box", "Kotak tebal", ""],
+  ["pop", "Pop membesar", ""],
+  ["smart-bg-focus", "Smart BG focus", ""],
+  ["box-highlight", "Box 1 kata", ""],
+  ["word-focus", "Word focus", ""],
+  ["underline-focus", "Underline focus", ""],
+  ["outline-focus", "Outline focus", ""],
+  ["temp-0", "temp-0", ""],
+  ["gadzhi", "Gadzhi", ""],
+];
+
+const HOOK_CARDS = [
+  ["classic", "Klasik", "Default"],
+  ["card", "Kartu", "Populer"],
+  ["quote", "Kutipan", ""],
+  ["accent-bar", "Bar Aksen", "Populer"],
+  ["cinema", "Sinema", ""],
+  ["neon", "Neon Glow", "Baru"],
+  ["breaking", "Breaking News", "Baru"],
+  ["impact", "Impact Slam", "Populer"],
+  ["tape", "Stiker Miring", "Baru"],
+  ["spotlight", "Sorot", "Baru"],
+];
+
+function captionSampleHtml(style) {
+  if (style === "karaoke") {
+    return `<div class="sc-sub sc-karaoke"><span class="sc-karaoke-text">satu kalimat penuh</span><span class="sc-karaoke-bar"><i></i></span></div>`;
+  }
+  if (style === "box-highlight") {
+    return `<div class="sc-sub sc-box-highlight"><span class="w">RASA</span></div>`;
+  }
+  if (style === "bilingual") {
+    return `<div class="sc-sub sc-bilingual"><span class="sc-bi-top">we all feel the same</span><span class="sc-bi-bot"><span class="w w1">kita</span><span class="w w2">punya</span><span class="w w3">rasa</span></span></div>`;
+  }
+  return `<div class="sc-sub sc-${style}"><span class="w w1">kita</span><span class="w w2">punya</span><span class="w w3">rasa</span></div>`;
+}
+
+function hookSampleHtml(style) {
+  if (style === "card") return `<div class="sc-hook hk-card">Ternyata dia<br>nolak 1 miliar</div>`;
+  if (style === "quote") return `<div class="sc-hook hk-quote"><i>“</i><span>Ternyata dia</span><span>nolak 1 miliar</span></div>`;
+  if (style === "accent-bar") return `<div class="sc-hook hk-accent-bar"><b>Ternyata dia</b><span>nolak 1 miliar</span></div>`;
+  if (style === "cinema") return `<div class="sc-hook hk-cinema">Ternyata dia<br>nolak 1 miliar</div>`;
+  if (style === "neon") return `<div class="sc-hook hk-neon">Ternyata dia<br>nolak 1 miliar</div>`;
+  if (style === "breaking") return `<div class="sc-hook hk-breaking"><i>● BREAKING</i><span>Nolak 1 Miliar</span></div>`;
+  if (style === "impact") return `<div class="sc-hook hk-impact">NOLAK<br>1 MILIAR!</div>`;
+  if (style === "tape") return `<div class="sc-hook hk-tape">Ternyata dia<br>nolak 1 miliar</div>`;
+  if (style === "spotlight") return `<div class="sc-hook hk-spotlight"><em>1 MILIAR</em><br>DITOLAK MENTAH</div>`;
+  return `<div class="sc-hook hk-classic">Ternyata dia<br>nolak 1 miliar</div>`;
+}
+
+function syncStylePickers() {
+  const accent = /^#[0-9a-f]{6}$/i.test($("captionColor")?.value || "") ? $("captionColor").value : "#FFD700";
+  const font = $("captionFont")?.value || "Arial Black";
+  const weight = $("captionBold")?.checked ? "800" : "400";
+  const subPicker = $("subtitlePicker");
+  const hookPicker = $("hookPicker");
+  if (subPicker) {
+    subPicker.style.setProperty("--picker-accent", accent);
+    subPicker.style.setProperty("--picker-font", font);
+    subPicker.style.setProperty("--picker-weight", weight);
+    subPicker.classList.toggle("is-off", !$("captions").checked);
+    const active = $("captionStyle").value || "highlight";
+    const strip = $("captionStyleStrip");
+    for (const card of subPicker.querySelectorAll(".style-card")) {
+      const selected = card.dataset.value === active;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-checked", String(selected));
+      if (selected && strip && strip.clientWidth > 0) {
+        const left = card.offsetLeft;
+        if (left < strip.scrollLeft || left + card.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+          strip.scrollLeft = Math.max(0, left - 24);
+        }
+      }
+    }
+  }
+  if (hookPicker) {
+    hookPicker.style.setProperty("--picker-accent", accent);
+    hookPicker.classList.toggle("is-off", !$("hook").checked);
+    const active = $("hookStyle").value || "classic";
+    for (const card of hookPicker.querySelectorAll(".style-card")) {
+      const selected = card.dataset.value === active;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-checked", String(selected));
+    }
+  }
+}
+
+function buildStylePickers() {
+  const subStrip = $("captionStyleStrip");
+  if (subStrip) {
+    subStrip.innerHTML = CAPTION_CARDS.map(([value, label, badge]) => `
+      <button type="button" class="style-card" role="radio" aria-checked="false" data-value="${value}">
+        <span class="style-card-box">${badge ? `<span class="style-card-badge">${badge}</span>` : ""}${captionSampleHtml(value)}</span>
+        <span class="style-card-label">${label}</span>
+      </button>`).join("");
+    subStrip.addEventListener("click", (event) => {
+      const card = event.target.closest(".style-card");
+      if (!card) return;
+      $("captionStyle").value = card.dataset.value;
+      syncStylePickers();
+    });
+  }
+  const hookStrip = $("hookStyleStrip");
+  if (hookStrip) {
+    hookStrip.innerHTML = HOOK_CARDS.map(([value, label, badge]) => `
+      <button type="button" class="style-card" role="radio" aria-checked="false" data-value="${value}">
+        <span class="style-card-box">${badge ? `<span class="style-card-badge">${badge}</span>` : ""}${hookSampleHtml(value)}</span>
+        <span class="style-card-label">${label}</span>
+      </button>`).join("");
+    hookStrip.addEventListener("click", (event) => {
+      const card = event.target.closest(".style-card");
+      if (!card) return;
+      $("hookStyle").value = card.dataset.value;
+      syncStylePickers();
+    });
+  }
+  document.querySelectorAll(".carousel-arrow").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const strip = $(btn.dataset.scroll);
+      if (strip) strip.scrollBy({ left: Number(btn.dataset.dir) * 360, behavior: "smooth" });
+    });
+  });
+  $("toggleCaptionTuning")?.addEventListener("click", () => $("captionTuning").classList.toggle("hidden"));
+  $("toggleHookTuning")?.addEventListener("click", () => $("hookTuning").classList.toggle("hidden"));
+  for (const id of ["captions", "hook", "captionColor", "captionFont", "captionBold"]) {
+    $(id)?.addEventListener("input", syncStylePickers);
+    $(id)?.addEventListener("change", syncStylePickers);
+  }
+  syncStylePickers();
+}
+
+function startPhonePreviewLoop() {
+  const words = [...document.querySelectorAll("#previewCaptions span")];
+  if (!words.length) return;
+  let step = 1;
+  setInterval(() => {
+    step = (step + 1) % words.length;
+    words.forEach((node, idx) => node.classList.toggle("active", idx === step));
+  }, 750);
+}
+
 async function init() {
   populateLanguages();
+  buildStylePickers();
+  startPhonePreviewLoop();
   buildPositionGrids();
   bindBranding();
   bindEvents();

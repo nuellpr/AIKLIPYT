@@ -166,8 +166,12 @@ def coerce_clips(
 ) -> list[dict]:
     out: list[dict] = []
     for item in items:
-        start = parse_timestamp(item.get("start_time") or item.get("start"))
-        end = parse_timestamp(item.get("end_time") or item.get("end"))
+        start = parse_timestamp(item.get("start_time"))
+        if start is None:
+            start = parse_timestamp(item.get("start"))
+        end = parse_timestamp(item.get("end_time"))
+        if end is None:
+            end = parse_timestamp(item.get("end"))
         if end is None and start is not None:
             try:
                 end = start + float(item.get("duration_seconds"))
@@ -293,9 +297,11 @@ def chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout:
         raise AIError("API key is missing. Save it in Settings.")
     if not model:
         raise AIError("Model is missing. Save it in Settings.")
-    endpoint = (base_url or "").rstrip("/")
+    endpoint = (base_url or "").strip().rstrip("/")
     if not endpoint:
         raise AIError("Base URL is missing. Save it in Settings.")
+    if not endpoint.startswith(("http://", "https://")):
+        raise AIError("Base URL must start with http:// or https://")
     if not endpoint.endswith("/chat/completions"):
         endpoint += "/chat/completions"
     body = json.dumps(

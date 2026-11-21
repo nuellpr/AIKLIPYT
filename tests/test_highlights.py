@@ -44,14 +44,17 @@ class ClipTests(unittest.TestCase):
     def test_coerce_clamps_and_parses(self):
         items = [
             {"start_time": "0:10", "end_time": "0:40", "title": "ok", "virality_score": "9", "score_reason": "strong hook"},
+            {"start_time": 0, "end_time": 30, "title": "from zero"},
             {"start": 100, "end": 130, "description": "past the end"},
         ]
         clips = coerce_clips(items, duration=90, min_seconds=10, max_seconds=60)
-        self.assertEqual(len(clips), 1)
+        self.assertEqual(len(clips), 2)
         self.assertAlmostEqual(clips[0]["start"], 10)
         self.assertAlmostEqual(clips[0]["end"], 40)
         self.assertEqual(clips[0]["virality_score"], 9)
         self.assertEqual(clips[0]["score_reason"], "strong hook")
+        self.assertAlmostEqual(clips[1]["start"], 0)
+        self.assertEqual(clips[1]["title"], "from zero")
 
     def test_score_from_four_dimensions(self):
         items = [
@@ -174,6 +177,11 @@ class ChatTests(unittest.TestCase):
     def test_missing_key_is_clear(self):
         with self.assertRaises(AIError):
             chat("http://127.0.0.1:9/v1", "", "m", [])
+
+    def test_rejects_non_http_base_url(self):
+        for bad in ("file:///C:/Windows/win.ini", "ftp://example.com/v1"):
+            with self.assertRaises(AIError):
+                chat(bad, "sk-test", "m", [{"role": "user", "content": "hi"}])
 
     def test_api_key_is_not_forwarded_on_redirect(self):
         stolen = {}

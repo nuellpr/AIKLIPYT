@@ -91,6 +91,38 @@ Baris kedua
         self.assertAlmostEqual(sliced[0].start, 1.0)
         self.assertAlmostEqual(sliced[0].end, 3.0)
 
+    def test_json3_clamps_rolling_event_overlap(self):
+        data = {
+            "events": [
+                {"tStartMs": 1000, "dDurationMs": 5000, "segs": [{"utf8": "first", "tOffsetMs": 0}]},
+                {"tStartMs": 2000, "dDurationMs": 1000, "segs": [{"utf8": "second", "tOffsetMs": 0}]},
+            ]
+        }
+        words = parse_json3(data)
+        self.assertEqual([w.word for w in words], ["first", "second"])
+        self.assertLessEqual(words[0].end, words[1].start)
+
+    def test_vtt_leading_word_and_manual_fallback(self):
+        auto_vtt = """WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+previous rolling line
+First<00:00:01.500><c> second</c>
+"""
+        _, words = parse_vtt(auto_vtt)
+        self.assertEqual([w.word for w in words], ["First", "second"])
+        self.assertAlmostEqual(words[0].start, 1.0)
+        self.assertAlmostEqual(words[1].start, 1.5)
+
+        manual_vtt = """WEBVTT
+
+00:00:01.000 --> 00:00:04.000
+satu dua tiga
+"""
+        cues, manual_words = parse_vtt(manual_vtt)
+        self.assertEqual(len(cues), 1)
+        self.assertEqual([w.word for w in manual_words], ["satu", "dua", "tiga"])
+
 
 if __name__ == "__main__":
     unittest.main()

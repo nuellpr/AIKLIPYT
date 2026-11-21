@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.assets import ffmpeg_path  # noqa: E402
-from core.render import CAPTION_FONTS, CAPTION_STYLES, MRBEAST_COLORS, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
+from core.render import CAPTION_FONTS, CAPTION_STYLES, HOOK_STYLES, MRBEAST_COLORS, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
 from core.subtitles import Word  # noqa: E402
 
 FFMPEG = ffmpeg_path()
@@ -115,7 +115,29 @@ class AssTests(unittest.TestCase):
         first_line = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
         self.assertIn(r"\fscx120", first_line)
         self.assertLess(first_line.index(r"\bord8\3c&HFFFFFF&"), first_line.index("}A"))
+        self.assertIn(r"{\bord8\3c&H000000&\shad2}B", first_line)
         self.assertIn("&H000000FF&", MRBEAST_COLORS)
+
+    def test_adjacent_groups_never_overlap(self):
+        # 5 words split into 2 groups; group 1's last word has a bloated rolling end time.
+        words = [
+            Word("one", 0.0, 0.3),
+            Word("two", 0.3, 0.6),
+            Word("three", 0.6, 0.9),
+            Word("four", 0.9, 4.5),
+            Word("five", 1.2, 1.5),
+        ]
+        for style in ("highlight", "karaoke", "bilingual"):
+            ass = build_ass(words, caption_style=style, translations=["satu", "dua"])
+            by_style: dict[str, list[tuple[str, str]]] = {}
+            for line in ass.splitlines():
+                if not line.startswith("Dialogue:"):
+                    continue
+                parts = line.split(",", 9)
+                by_style.setdefault(parts[3], []).append((parts[1], parts[2]))
+            for style_name, times in by_style.items():
+                for (_, prev_end), (next_start, _) in zip(times, times[1:]):
+                    self.assertLessEqual(prev_end, next_start, f"{style}/{style_name}: {prev_end} > {next_start}")
 
     def test_caption_font_and_bold(self):
         words = [Word("halo", 0.2, 0.7)]
@@ -166,6 +188,33 @@ class AssTests(unittest.TestCase):
         words = [Word("halo", 0.2, 0.7)]
         ass = build_ass(words, caption_style="bilingual", translations=["{evil\\pos(0,0)}"])
         self.assertNotIn("{evil", ass)
+
+    def test_hook_styles(self):
+        words = [Word("halo", 0.2, 0.7)]
+        self.assertEqual(len(HOOK_STYLES), 10)
+        card = build_ass(words, hook_text="Ternyata dia", hook_style="card")
+        self.assertIn(",HookBox,,", card)
+        self.assertIn("Ternyata dia", card)
+        quote = build_ass(words, hook_text="Ternyata dia", hook_style="quote")
+        self.assertIn("“ ", quote)
+        bar = build_ass(words, hook_text="Ternyata dia", hook_style="accent-bar")
+        self.assertIn("TERNYATA DIA", bar)
+        cinema = build_ass(words, hook_text="Ternyata dia", hook_style="cinema")
+        self.assertIn(r"\fsp6", cinema)
+        neon = build_ass(words, hook_text="Ternyata dia", hook_style="neon")
+        self.assertIn(r"\blur10", neon)
+        breaking = build_ass(words, hook_text="Ternyata dia", hook_style="breaking")
+        self.assertIn("● TERNYATA DIA", breaking)
+        impact = build_ass(words, hook_text="Ternyata dia", hook_style="impact")
+        self.assertIn(r"\t(0,180,\fscx100\fscy100)", impact)
+        tape = build_ass(words, hook_text="Ternyata dia", hook_style="tape")
+        self.assertIn(r"\frz3", tape)
+        spot = build_ass(words, hook_text="Ternyata dia nolak satu miliar", hook_style="spotlight")
+        self.assertIn(r"\i1", spot)
+        self.assertIn("TERNYATA DIA", spot)
+        self.assertIn("NOLAK SATU MILIAR", spot)
+        fallback = build_ass(words, hook_text="Halo", hook_style="unknown")
+        self.assertIn(",Hook,,0,0,0,,HALO", fallback)
 
     def test_time_format(self):
         self.assertEqual(ass_time(0), "0:00:00.00")
@@ -227,8 +276,10 @@ class FfmpegRenderTests(unittest.TestCase):
                 timeout=120,
             )
             words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
-            for style in ("smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus", "temp-0",
-                          "hormozi", "karaoke", "gadzhi", "mrbeast", "bilingual"):
+            for idx, style in enumerate((
+                "smart-bg-focus", "box-highlight", "word-focus", "underline-focus", "outline-focus", "temp-0",
+                "hormozi", "karaoke", "gadzhi", "mrbeast", "bilingual",
+            )):
                 output = work / f"out_{style}.mp4"
                 render_clip(
                     source,
@@ -236,6 +287,8 @@ class FfmpegRenderTests(unittest.TestCase):
                     words,
                     FFMPEG,
                     1.5,
+                    hook_text="Ternyata dia nolak 1 miliar" if idx < len(HOOK_STYLES) else "",
+                    hook_style=HOOK_STYLES[idx] if idx < len(HOOK_STYLES) else "classic",
                     portrait=False,
                     caption_style=style,
                     caption_font="Segoe UI" if style == "highlight" else "Arial Black",
@@ -256,6 +309,21 @@ class FfmpegRenderTests(unittest.TestCase):
             )
             self.assertTrue(custom_out.is_file())
             self.assertGreater(custom_out.stat().st_size, 1000)
+
+            rel_logo = Path("web/assets/logo.png")
+            if rel_logo.is_file():
+                logo_out = work / "out_rel_logo.mp4"
+                render_clip(
+                    source,
+                    logo_out,
+                    words,
+                    FFMPEG,
+                    1.5,
+                    portrait=False,
+                    watermark=str(rel_logo),
+                )
+                self.assertTrue(logo_out.is_file())
+                self.assertGreater(logo_out.stat().st_size, 1000)
 
 
 if __name__ == "__main__":

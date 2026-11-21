@@ -2,6 +2,33 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.5] - 2026-11-21
+
+### Added
+- **10 gaya Judul pembuka (Hook)** yang langsung dirender oleh FFmpeg/ASS: `classic` (Klasik), `card` (Kartu), `quote` (Kutipan), `accent-bar` (Bar Aksen), `cinema` (Sinema), `neon` (Neon Glow), `breaking` (Breaking News), `impact` (Impact Slam), `tape` (Stiker Miring), dan `spotlight` (Sorot).
+- **Carousel kartu preview beranimasi** di Pengaturan → Klip, Subtitle & Hook untuk memilih ke-14 gaya subtitle dan ke-10 gaya hook secara visual, lengkap dengan panel **Warna & font** serta **Durasi**.
+- **Live preview thumbnail YouTube 9:16 / 16:9** saat menempel URL di tab Buat, mengikuti latar hitam/blur, gaya subtitle, gaya hook, warna aksen, font, dan opsi Bold secara real-time.
+- Tombol **Muat highlight** di detail sesi Pustaka untuk memuat ulang daftar highlight sesi lama ke tab Buat tanpa memanggil AI ulang.
+- Berkas [LICENSE](LICENSE) (MIT) dan kebijakan keamanan [SECURITY.md](SECURITY.md).
+
+### Security
+- Memblokir skema non-`http://`/`https://` pada `core/highlights.py` (`chat()`) dan validasi `baseUrl` di `_apply_settings`.
+- Menambahkan header keamanan `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, dan `Permissions-Policy`.
+- Memisahkan argumen `--` sebelum URL pada pemanggilan `yt-dlp` dan menyimpan `cookies.txt` secara atomik (dengan izin `0600` di POSIX).
+- Memperketat `_apply_settings`: whitelist kunci dari `DEFAULTS`, menolak nilai `NaN`/`Infinity`, membatasi `hookSeconds` (`0.5–10` dtk), dan memvalidasi `background`.
+- Penjaga sesi aktif (`409 Conflict`) mencegah render ganda dan penghapusan sesi saat render masih berjalan.
+
+### Fixed
+- Memotong tumpang tindih waktu kata di `normalize_words` dan akhir grup di `build_ass` agar subtitle tidak lagi menumpuk dan melompat vertikal saat transisi grup.
+- Klip yang dimulai di detik `0` (`start_time: 0`) tidak lagi dibuang diam-diam.
+- Setelan **Bahasa output default** di Pengaturan kini otomatis tersinkronisasi ke tab Buat saat mencari highlight.
+- Parser `.vtt` kini membaca kata pertama sebelum tag `<timestamp>`, memproses cue 1-tag, dan fallback ke `words_from_cues` untuk subtitle `.vtt` manual.
+- Gaya `mrbeast` memakai outline hitam pada kata non-aktif (tidak lagi putih di atas outline putih).
+- Path relatif untuk watermark/input/output di-resolve absolut sebelum dikirim ke `ffmpeg`, dan `ffmpeg` diberi watchdog timeout agar tidak macet permanen.
+- Pemilih subtitle kini mengenali kode wilayah manual (`en-US`, `pt-BR`, `zh-Hans`) dan menormalisasi `"auto"`.
+- Render ulang klip yang sudah ada kini mengirim `overwrite: true`, label progres memakai `{urutan}/{total}`, polling job memakai `setTimeout` berantai, dan batas body dinaikkan ke 9 MB sambil mempertahankan format JPEG saat resize watermark.
+- Animasi kartu preview tetap berjalan meski Windows mengaktifkan `prefers-reduced-motion`.
+
 ## [1.0.4] - 2026-11-19
 
 ### Added

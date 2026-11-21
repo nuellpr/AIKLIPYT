@@ -20,8 +20,18 @@ from .subtitles import Word, parse_subtitle, slice_words, transcript
 from .ytdlp import YtdlpError, download_section, download_subtitle, pick_subtitle, video_info
 
 JOBS: dict[str, dict] = {}
+_ACTIVE_SESSIONS: set[str] = set()
 _lock = threading.RLock()
 TMP = DATA / "tmp"
+
+
+class SessionBusyError(RuntimeError):
+    pass
+
+
+def is_session_busy(session_id: str) -> bool:
+    with _lock:
+        return session_id in _ACTIVE_SESSIONS
 
 
 def cleanup_tmp(tmp_dir: Path | None = None) -> int:
@@ -281,12 +291,22 @@ def _render_worker(job: dict, params: dict) -> None:
             out = output_folder / f"clip_{index + 1:02d}.mp4"
             if out.exists() and out.stat().st_size > 1000 and not overwrite:
                 _log(job, f"Clip {index + 1} already exists, skipping")
-                by_index[index] = dict(by_index.get(index) or {}, index=index, file=out.name, title=clip.get("title", ""))
+                prev = by_index.get(index) or {}
+                by_index[index] = {
+                    "index": index,
+                    "file": out.name,
+                    "title": clip.get("title", "") or prev.get("title", ""),
+                    "description": clip.get("description", "") or prev.get("description", ""),
+                    "hook": clip.get("hook_text", "") or prev.get("hook", ""),
+                    "start": clip.get("start") if clip.get("start") is not None else prev.get("start"),
+                    "end": clip.get("end") if clip.get("end") is not None else prev.get("end"),
+                    "duration": prev.get("duration") or round(end - start, 2),
+                }
                 _update(job, progress=(position + 1) / total * 100)
                 continue
             job_dir = workdir / f"clip_{index + 1}"
             try:
-                _update(job, message=f"Downloading clip {index + 1}/{total}", progress=(position / total) * 100)
+                _update(job, message=f"Downloading clip {position + 1}/{total} (#{index + 1})", progress=(position / total) * 100)
                 _log(job, f"Clip {index + 1}: {clip.get('start')}s - {clip.get('end')}s")
                 section = download_section(
                     session["url"],
@@ -294,15 +314,15 @@ def _render_worker(job: dict, params: dict) -> None:
                     end,
                     cookies,
                     job_dir,
-                    on_line=lambda line, percent: (
-                        _update(job, message=f"Downloading clip {index + 1}/{total} ({percent:.0f}%)")
+                    on_line=lambda line, percent, p=position, i=index: (
+                        _update(job, message=f"Downloading clip {p + 1}/{total} (#{i + 1}) ({percent:.0f}%)")
                         if percent is not None
                         else None
                     ),
                 )
                 _update(
                     job,
-                    message=f"Rendering clip {index + 1}/{total}",
+                    message=f"Rendering clip {position + 1}/{total} (#{index + 1})",
                     progress=(position / total) * 100 + 5 / total,
                 )
                 clip_words = slice_words(stored_words, start, end)
@@ -352,6 +372,7 @@ def _render_worker(job: dict, params: dict) -> None:
                     caption_style=render_opts.get("captionStyle", "highlight"),
                     caption_font=render_opts.get("captionFont", "Arial Black"),
                     caption_bold=bool(render_opts.get("captionBold", True)),
+                    hook_style=render_opts.get("hookStyle", "classic"),
                     watermark_position=render_opts.get("watermarkPosition", "top-right"),
                     credit_position=render_opts.get("creditPosition", "bottom-center"),
                     logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),
@@ -399,11 +420,23 @@ def _render_worker(job: dict, params: dict) -> None:
         _log(job, traceback.format_exc(limit=3))
         _fail(job, f"Unexpected error: {exc}")
     finally:
+        with _lock:
+            _ACTIVE_SESSIONS.discard(params.get("sessionId", ""))
         shutil.rmtree(workdir, ignore_errors=True)
 
 
 def start_render(params: dict) -> str:
-    job = _new_job("render")
-    thread = threading.Thread(target=_render_worker, args=(job, params), daemon=True)
-    thread.start()
-    return job["id"]
+    session_id = str(params.get("sessionId", ""))
+    with _lock:
+        if session_id in _ACTIVE_SESSIONS:
+            raise SessionBusyError("Sesi ini sedang dirender. Tunggu render selesai.")
+        _ACTIVE_SESSIONS.add(session_id)
+    try:
+        job = _new_job("render")
+        thread = threading.Thread(target=_render_worker, args=(job, params), daemon=True)
+        thread.start()
+        return job["id"]
+    except Exception:
+        with _lock:
+            _ACTIVE_SESSIONS.discard(session_id)
+        raise

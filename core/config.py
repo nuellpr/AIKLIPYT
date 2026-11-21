@@ -31,6 +31,7 @@ DEFAULTS: dict[str, Any] = {
         "captions": True,
         "hook": True,
         "hookSeconds": 3.0,
+        "hookStyle": "classic",
         "captionColor": "#FFD700",
         "captionStyle": "highlight",
         "captionFont": "Arial Black",
@@ -85,13 +86,6 @@ def save(config: dict) -> dict:
         tmp.replace(CONFIG_PATH)
         _cache = merged
         return copy.deepcopy(merged)
-
-
-def update(section: str, values: dict) -> dict:
-    with _lock:
-        current = load()
-        current[section] = _merge(current.get(section, {}), values)
-        return save(current)
 
 
 def ensure_dirs() -> None:

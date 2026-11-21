@@ -113,7 +113,13 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
             continue
         cues.append(Cue(start, end, " ".join(plain.split())))
         stamps = list(_INLINE_TS.finditer(body))
-        if len(stamps) >= 2:
+        if stamps:
+            segments: list[tuple[float | None, float | None, str]] = []
+            first_ts = parse_timestamp(stamps[0].group(1))
+            line_start = body.rfind("\n", 0, stamps[0].start()) + 1
+            prefix = body[line_start : stamps[0].start()]
+            if prefix.strip():
+                segments.append((start, first_ts, prefix))
             for position, match in enumerate(stamps):
                 word_start = parse_timestamp(match.group(1))
                 word_end = (
@@ -121,7 +127,13 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
                     if position + 1 < len(stamps)
                     else end
                 )
-                chunk = body[match.end(): stamps[position + 1].start() if position + 1 < len(stamps) else len(body)]
+                chunk = body[
+                    match.end() : stamps[position + 1].start()
+                    if position + 1 < len(stamps)
+                    else len(body)
+                ]
+                segments.append((word_start, word_end, chunk))
+            for word_start, word_end, chunk in segments:
                 chunk = html.unescape(re.sub(r"<[^>]+>", "", chunk)).strip()
                 tokens = chunk.split()
                 if word_start is None or word_end is None or word_end <= word_start or not tokens:
@@ -133,7 +145,7 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
                     span = (word_end - word_start) * weight / total
                     words.append(Word(token, cursor, min(word_end, cursor + max(0.06, span))))
                     cursor += span
-    return cues, normalize_words(words)
+    return cues, normalize_words(words) or words_from_cues(cues)
 
 
 def parse_json3(data: dict) -> list[Word]:
@@ -185,6 +197,8 @@ def normalize_words(words: list[Word]) -> list[Word]:
                 continue
             if word.start < prev.start - 0.25:
                 continue
+            if prev.end > word.start and word.start > prev.start:
+                out[-1] = Word(prev.word, prev.start, word.start)
         out.append(word)
     return out
 

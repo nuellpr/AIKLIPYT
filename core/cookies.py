@@ -6,6 +6,7 @@ extension cannot leak Gmail/Drive sessions into the app.
 """
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -76,7 +77,11 @@ def save(path: Path, text: str) -> dict:
     if stats["kept"] == 0:
         raise ValueError("No YouTube cookies found. Export cookies for youtube.com, not the whole browser.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(filtered, encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(filtered, encoding="utf-8")
+    if os.name != "nt":
+        os.chmod(tmp, 0o600)
+    tmp.replace(path)
     return stats
 
 

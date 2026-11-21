@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import mimetypes
 import os
 import re
@@ -20,12 +21,13 @@ from core import cookies as cookie_store
 from core import models as model_catalog
 from core import pipeline, session as session_store
 from core.assets import deno_path, ffmpeg_path
-from core.config import DATA, ROOT, ensure_dirs, load, save
-from core.render import CAPTION_FONTS, CAPTION_STYLES
+from core.config import DATA, DEFAULTS, ROOT, ensure_dirs, load, save
+from core.render import CAPTION_FONTS, CAPTION_STYLES, HOOK_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.4"
+VERSION = "1.0.5"
+BACKGROUNDS = {"black", "blurred"}
 POSITIONS = {
     "top-left",
     "top-center",
@@ -39,7 +41,7 @@ POSITIONS = {
 }
 COOKIES = DATA / "cookies.txt"
 WATERMARKS = DATA / "watermarks"
-MAX_BODY = 8 * 1024 * 1024
+MAX_BODY = 9 * 1024 * 1024
 
 
 def _normalize_caption_style(config: dict) -> None:
@@ -50,6 +52,11 @@ def _normalize_caption_style(config: dict) -> None:
 def _normalize_caption_font(config: dict) -> None:
     if config["render"].get("captionFont") not in CAPTION_FONTS:
         config["render"]["captionFont"] = "Arial Black"
+
+
+def _normalize_hook_style(config: dict) -> None:
+    if config["render"].get("hookStyle") not in HOOK_STYLES:
+        config["render"]["hookStyle"] = "classic"
 
 
 def _public_config() -> dict:
@@ -133,8 +140,20 @@ def _model_auth(body: dict, config: dict) -> tuple[str, str]:
     return base, api_key(config) or ""
 
 
+def _cleanup_old_watermark(old_path: str, new_path: str) -> None:
+    if not old_path or old_path == new_path:
+        return
+    try:
+        old = Path(old_path).resolve()
+        if old.parent == WATERMARKS.resolve() and old.is_file():
+            old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _apply_settings(body: dict) -> dict:
     config = load()
+    old_watermark = str(config["render"].get("watermark") or "")
     ai = body.get("ai")
     if isinstance(ai, dict):
         ai = dict(ai)
@@ -146,29 +165,42 @@ def _apply_settings(body: dict) -> dict:
                 config["ai"]["apiKeyEnc"] = ""
         for field in ("baseUrl", "model"):
             if isinstance(ai.get(field), str):
-                config["ai"][field] = ai[field].strip()
+                cleaned = ai[field].strip()
+                if field == "baseUrl" and cleaned and not cleaned.startswith(("http://", "https://")):
+                    raise ValueError("Base URL harus diawali http:// atau https://")
+                config["ai"][field] = cleaned
     for section in ("clip", "render", "paths"):
         values = body.get(section)
+        allowed = DEFAULTS[section]
         if isinstance(values, dict):
             for key, value in values.items():
+                if key not in allowed:
+                    continue
                 if key in ("minSeconds", "maxSeconds", "padding", "hookSeconds", "watermarkOpacity", "creditOpacity"):
                     try:
-                        config[section][key] = float(value)
+                        number = float(value)
                     except (TypeError, ValueError):
                         continue
+                    if not math.isfinite(number):
+                        continue
+                    config[section][key] = number
                 elif key in ("portrait", "captions", "hook", "captionBold"):
                     config[section][key] = bool(value)
                 elif isinstance(value, str):
                     config[section][key] = value.strip()
     if isinstance(body.get("outputLanguage"), str):
-        config["outputLanguage"] = body["outputLanguage"]
+        config["outputLanguage"] = body["outputLanguage"].strip()[:20] or "auto"
     config["clip"]["minSeconds"] = max(5.0, min(600.0, config["clip"]["minSeconds"]))
     config["clip"]["maxSeconds"] = max(config["clip"]["minSeconds"], min(600.0, config["clip"]["maxSeconds"]))
     config["clip"]["padding"] = max(0.0, min(5.0, config["clip"]["padding"]))
+    config["render"]["hookSeconds"] = max(0.5, min(10.0, config["render"]["hookSeconds"]))
+    if config["render"].get("background") not in BACKGROUNDS:
+        config["render"]["background"] = "black"
     color = str(config["render"].get("captionColor") or "").strip()
     config["render"]["captionColor"] = color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else "#FFD700"
     _normalize_caption_style(config)
     _normalize_caption_font(config)
+    _normalize_hook_style(config)
     if config["render"].get("watermarkPosition") not in POSITIONS:
         config["render"]["watermarkPosition"] = "top-right"
     if config["render"].get("creditPosition") not in POSITIONS:
@@ -178,8 +210,12 @@ def _apply_settings(body: dict) -> dict:
             value = float(config["render"].get(key, default))
         except (TypeError, ValueError):
             value = default
+        if not math.isfinite(value):
+            value = default
         config["render"][key] = max(0.0, min(1.0, value))
-    return save(config)
+    saved = save(config)
+    _cleanup_old_watermark(old_watermark, str(saved["render"].get("watermark") or ""))
+    return saved
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -201,8 +237,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         if content_type.startswith("text/html"):
+            self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; img-src 'self' https://i.ytimg.com data: blob:; "
@@ -245,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
-    def _serve_file(self, path: Path, content_type: str | None = None, download_name: str | None = None):
+    def _serve_file(self, path: Path, content_type: str | None = None):
         if not path.is_file():
             self._error(404, "File not found")
             return
@@ -279,8 +318,6 @@ class Handler(BaseHTTPRequestHandler):
             status = 206
             extra["Content-Range"] = f"bytes {start}-{end}/{size}"
         length = end - start + 1
-        if download_name:
-            extra["Content-Disposition"] = f'attachment; filename="{download_name}"'
         self._headers(status, content_type, length, extra)
         with path.open("rb") as handle:
             handle.seek(start)
@@ -453,13 +490,17 @@ class Handler(BaseHTTPRequestHandler):
                     indices = []
                 indices = [int(item) for item in indices if isinstance(item, (int, str)) and str(item).isdigit()]
                 indices = list(dict.fromkeys(indices))[:100]
-                job_id = pipeline.start_render(
-                    {
-                        "sessionId": session_id,
-                        "indices": indices,
-                        "overwrite": bool(body.get("overwrite")),
-                    }
-                )
+                try:
+                    job_id = pipeline.start_render(
+                        {
+                            "sessionId": session_id,
+                            "indices": indices,
+                            "overwrite": bool(body.get("overwrite")),
+                        }
+                    )
+                except pipeline.SessionBusyError as exc:
+                    self._error(409, str(exc))
+                    return
                 self._json(200, {"ok": True, "jobId": job_id})
                 return
             if path == "/api/open":
@@ -478,7 +519,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"ok": True})
                 return
             if path == "/api/delete":
-                session_store.delete(str(body.get("sessionId", "")))
+                session_id = str(body.get("sessionId", ""))
+                if pipeline.is_session_busy(session_id):
+                    self._error(409, "Sesi ini sedang dirender. Tunggu render selesai sebelum menghapus.")
+                    return
+                session_store.delete(session_id)
                 self._json(200, {"ok": True})
                 return
             self._error(404, "Not found")

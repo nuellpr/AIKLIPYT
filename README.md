@@ -5,10 +5,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versi-v1.0.4-blue" alt="Versi v1.0.4">
+  <img src="https://img.shields.io/badge/versi-v1.0.5-blue" alt="Versi v1.0.5">
+  <img src="https://img.shields.io/badge/lisensi-MIT-green" alt="Lisensi MIT">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/tests-78%20passing-brightgreen" alt="78 test lulus">
+  <img src="https://img.shields.io/badge/tests-92%20passing-brightgreen" alt="92 test lulus">
 </p>
 
 **Studio klip YouTube yang berjalan di komputermu sendiri.** Tempel URL, biarkan AI
@@ -20,8 +21,8 @@ Ditulis ulang dari nol berdasarkan perilaku yang diamati dari **YT Short Clipper
 (v2.0.7-beta) lewat analisis REA. Ini **bukan salinan** kode atau aset aplikasi asli —
 yang sama hanya alur kerjanya; implementasinya bersih dan terbuka.
 
-**Rilis terbaru:** [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4)
-· [Riwayat perubahan](CHANGELOG.md)
+**Rilis terbaru:** [v1.0.5](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5)
+· [Riwayat perubahan](CHANGELOG.md) · [Lisensi MIT](LICENSE) · [Kebijakan Keamanan](SECURITY.md)
 
 ## Daftar isi
 
@@ -51,14 +52,12 @@ dan mudah diubah. UI berjalan di browser pada `http://127.0.0.1:8765`.
 - AI OpenAI-compatible: OpenAI, Groq, Gemini, OpenRouter, vLLM lokal, dan lain-lain.
   Tombol **Muat model** mengisi dropdown; pilih **Custom** untuk mengetik nama model.
 - Klip 9:16 dengan latar hitam atau blur; opsi 16:9 dan durasi 5–600 detik.
-- **14 gaya subtitle**, termasuk karaoke per kata dan subtitle bilingual dua lapis
-  dengan terjemahan AI — lihat [Gaya subtitle](#gaya-subtitle).
+- **14 gaya subtitle** dan **10 gaya Judul pembuka (Hook)** dengan kartu preview beranimasi di Pengaturan — lihat [Gaya subtitle](#gaya-subtitle).
+- **Live preview 9:16 / 16:9** saat menempel link YouTube: langsung menampilkan thumbnail video, latar hitam/blur, hook, dan simulasi subtitle sesuai Pengaturan.
 - Pilihan **13 font subtitle** dan opsi **Huruf subtitle tebal (Bold)** di Pengaturan.
-- Warna aksen caption dan hook yang bisa diatur; hook di awal klip, teks kredit, dan
-  watermark PNG/JPG dengan 9 posisi serta transparansi yang bisa di-preview.
-- Encoder hardware (NVENC/QSV/AMF) dipilih lewat uji encode nyata, lalu fallback
-  otomatis ke libx264. Encoder tanpa GPU/driver tidak akan dicoba.
-- Pustaka sesi lokal: preview klip, buka folder, hapus.
+- Warna aksen caption dan hook yang bisa diatur; teks kredit, dan watermark PNG/JPG dengan 9 posisi serta transparansi yang bisa di-preview.
+- Encoder hardware (NVENC/QSV/AMF) dipilih lewat uji encode nyata, lalu fallback otomatis ke libx264. Encoder tanpa GPU/driver tidak akan dicoba.
+- Pustaka sesi lokal: preview klip, muat ulang highlight ke tab Buat, buka folder, hapus.
 - Cookies YouTube **opsional** dan difilter: domain lain dibuang; dari google.com
   hanya cookie login YouTube yang disimpan.
 - API key dienkripsi DPAPI Windows (hanya bisa dibaca user yang sama).
@@ -195,14 +194,15 @@ AIKLIPYT/
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Saat ini **78 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
-dan memverifikasi output 1080x1920, termasuk kelima gaya kreator serta pilihan font
-dan bold. Test DPAPI hanya berjalan di Windows.
+Saat ini **92 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
+dan memverifikasi output 1080x1920, termasuk 14 gaya subtitle, 10 gaya hook, pilihan font/bold,
+dan validasi keamanan server. Test DPAPI hanya berjalan di Windows.
 
 ## Rilis
 
 | Versi | Tanggal | Catatan |
 |---|---|---|
+| [v1.0.5](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5) | 2026-11-21 | 10 gaya hook, carousel kartu beranimasi, live preview thumbnail YouTube, perbaikan tumpang tindih subtitle & pengerasan keamanan, LICENSE MIT & SECURITY.md |
 | [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4) | 2026-11-19 | Pilihan font subtitle & toggle Bold, perbaikan lookup `assets/ffmpeg`, render ASS & UI |
 | [v1.0.3](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.3) | 2026-11-17 | 5 gaya subtitle kreator, bilingual, pengerasan API & media |
 | [v1.0.2](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.2) | 2026-11-14 | Watermark & kredit, jumlah klip tepat |
@@ -228,7 +228,9 @@ Detail lengkap ada di [CHANGELOG.md](CHANGELOG.md).
   memakai QSV, mesin tanpa GPU memakai libx264. Tidak perlu mengubah pengaturan.
 - **Port dipakai** — server otomatis mencoba port berikutnya; lihat URL di konsol.
 
-## Keamanan
+## Keamanan & Lisensi
+
+Detail kebijakan keamanan, pelaporan kerentanan, dan praktik aman ada di [SECURITY.md](SECURITY.md).
 
 File `cookies.txt` adalah kredensial hidup. Jangan dibagikan. Kalau pernah mengekspor
 seluruh cookie browser (bukan hanya YouTube), hapus file aslinya dan logout/rotasi
@@ -238,6 +240,9 @@ perlakukan `data\cookies.txt` seperti password.
 API key disimpan terenkripsi DPAPI, tetapi tetap bisa dibaca oleh proses yang berjalan
 sebagai user Windows yang sama. Gunakan key khusus dengan limit. Kunci tidak ikut
 terkirim jika penyedia AI mengalihkan permintaan ke alamat lain.
+
+Kode sumber AIKLIPYT dirilis di bawah lisensi [MIT](LICENSE). Paket rilis Windows
+menyertakan biner pihak ketiga (FFmpeg GPL-3.0 dan Deno MIT) — lihat [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Perbedaan dengan aplikasi asli
 
@@ -275,4 +280,4 @@ terkirim jika penyedia AI mengalihkan permintaan ke alamat lain.
 
 ---
 
-AIKLIPYT v1.0.4 · lokal, tanpa telemetri.
+AIKLIPYT v1.0.5 · MIT · lokal, tanpa telemetri.

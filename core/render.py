@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 from .subtitles import Word
@@ -23,6 +24,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Caption,{caption_font},{caption_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,{caption_bold},0,0,0,100,100,0,0,1,4,1,2,{margin},{margin},{bottom_margin},1
 Style: CaptionBg,{caption_font},{caption_size},&H00FFFFFF,&H000000FF,&H00031410,&H80000000,{caption_bold},0,0,0,100,100,0,0,3,18,0,2,{margin},{margin},{bottom_margin},1
 Style: Hook,Arial Black,{hook_size},{hook_color},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,8,{margin},{margin},{top_margin},1
+Style: HookBox,Arial Black,{hook_box_size},&H00101210,&H000000FF,&H00FFFFFF,&H80000000,-1,0,0,0,100,100,0,0,3,18,0,8,{margin},{margin},{top_margin},1
 Style: Credit,Arial,{credit_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,3,{margin},{margin},{margin},1
 Style: CaptionAlt,{caption_font},{alt_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,{caption_bold},0,0,0,100,100,0,0,1,3,1,2,{margin},{margin},{alt_margin},1
 
@@ -46,6 +48,18 @@ CAPTION_STYLES = (
     "gadzhi",
     "mrbeast",
     "bilingual",
+)
+HOOK_STYLES = (
+    "classic",
+    "card",
+    "quote",
+    "accent-bar",
+    "cinema",
+    "neon",
+    "breaking",
+    "impact",
+    "tape",
+    "spotlight",
 )
 CAPTION_FONTS = (
     "Arial Black",
@@ -153,6 +167,7 @@ def build_ass(
     caption_style: str = "highlight",
     caption_font: str = "Arial Black",
     caption_bold: bool = True,
+    hook_style: str = "classic",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
     translations: list[str] | None = None,
@@ -164,6 +179,8 @@ def build_ass(
         caption_style = "highlight"
     if caption_font not in CAPTION_FONTS:
         caption_font = "Arial Black"
+    if hook_style not in HOOK_STYLES:
+        hook_style = "classic"
     bold_flag = -1 if caption_bold else 0
     gadzhi_font = "Arial" if caption_font == "Arial Black" else caption_font
     gadzhi_base = rf"{{\fn{gadzhi_font}\b0\bord1\shad0\3c&H000000&}}"
@@ -174,6 +191,7 @@ def build_ass(
         caption_bold=bold_flag,
         caption_size=62 if portrait else 54,
         hook_size=86 if portrait else 64,
+        hook_box_size=68 if portrait else 52,
         credit_size=40 if portrait else 32,
         alt_size=46 if portrait else 38,
         margin=margin,
@@ -187,11 +205,59 @@ def build_ass(
 
     if hook_text.strip():
         hook_end = min(max(0.5, hook_seconds), max(0.5, end_of_video)) if end_of_video else max(0.5, hook_seconds)
-        events.append(
-            f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{ass_escape(hook_text).upper()}"
-        )
+        escaped_hook = ass_escape(hook_text)
+        if hook_style == "card":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\fad(180,180)}}{escaped_hook}"
+            )
+        elif hook_style == "quote":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c{accent}\\3c&H00141414&\\fad(180,180)}}“ {{\\c&H00FFFFFF&}}{escaped_hook}"
+            )
+        elif hook_style == "accent-bar":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c&H00101210&\\3c{accent}\\fad(160,160)}}{escaped_hook.upper()}"
+            )
+        elif hook_style == "cinema":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\b0\\fsp6\\bord2\\shad2\\3c&H000000&\\fad(300,250)}}{escaped_hook.upper()}"
+            )
+        elif hook_style == "neon":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\3c{accent}\\bord7\\blur10\\shad0\\fad(160,160)}}{escaped_hook.upper()}"
+            )
+        elif hook_style == "breaking":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c&H00FFFFFF&\\3c&H002222E0&\\fad(140,140)}}● {escaped_hook.upper()}"
+            )
+        elif hook_style == "impact":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\3c&H000000&\\bord10\\shad4\\fscx132\\fscy132\\t(0,180,\\fscx100\\fscy100)}}{escaped_hook.upper()}"
+            )
+        elif hook_style == "tape":
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\frz3\\c&H00101210&\\3c&H00D8F5FF&\\fad(160,160)}}{escaped_hook}"
+            )
+        elif hook_style == "spotlight":
+            hook_words = escaped_hook.upper().split()
+            split_at = min(2, max(1, len(hook_words) // 2))
+            lead = " ".join(hook_words[:split_at])
+            rest = " ".join(hook_words[split_at:])
+            styled = f"{{\\i1\\c{accent}\\bord5\\shad3\\fad(200,180)}}{lead}" + (f" {{\\c&H00FFFFFF&}}{rest}" if rest else "")
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{styled}"
+            )
+        else:
+            events.append(
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{escaped_hook.upper()}"
+            )
 
-    for group_index, group in enumerate(group_words(words)):
+    groups = group_words(words)
+    for group_index, group in enumerate(groups):
+        next_start = groups[group_index + 1][0].start if group_index + 1 < len(groups) else None
+        group_end = group[-1].end + 0.12
+        if next_start is not None and next_start > group[-1].start:
+            group_end = min(group_end, next_start)
         if caption_style == "karaoke":
             kf = []
             for i, w in enumerate(group):
@@ -199,15 +265,17 @@ def build_ass(
                 kf.append(r"{\kf" + str(max(1, int(round(dur * 100)))) + "}" + ass_escape(w.word))
             if kf:
                 text = r"{\2c&H00FFFFFF&}" + _color_tag(accent) + " ".join(kf)
+                line_end = group_end if group_end > group[0].start else group[0].start + 0.06
                 events.append(
-                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},Caption,,0,0,0,,{text}"
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(line_end)},Caption,,0,0,0,,{text}"
                 )
             continue
         event_style = "CaptionBg" if caption_style == "smart-bg-focus" else "Caption"
         for index, word in enumerate(group):
             start = word.start
-            end = group[index + 1].start if index + 1 < len(group) else word.end + 0.12
-            end = max(start + 0.06, end)
+            end = group[index + 1].start if index + 1 < len(group) else group_end
+            if end <= start:
+                end = start + 0.06
             if caption_style == "box-highlight":
                 token = ass_escape(word.word)
                 if token:
@@ -257,7 +325,7 @@ def build_ass(
                     elif caption_style == "gadzhi":
                         parts.append(gadzhi_base + token)
                     elif caption_style == "mrbeast":
-                        parts.append(r"{\bord8\3c&HFFFFFF&\shad2}" + token)
+                        parts.append(r"{\bord8\3c&H000000&\shad2}" + token)
                     else:
                         parts.append(token)
             if not parts:
@@ -267,8 +335,9 @@ def build_ass(
         if caption_style == "bilingual" and translations and group_index < len(translations):
             translated = (translations[group_index] or "").strip()
             if translated:
+                alt_end = group_end if group_end > group[0].start else group[0].start + 0.06
                 events.append(
-                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(group[-1].end + 0.12)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(alt_end)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
                 )
 
     if credit.strip():
@@ -285,20 +354,24 @@ _HW_ENCODERS = [
     ("h264_amf", ["-c:v", "h264_amf", "-quality", "balanced", "-qp_i", "22", "-qp_p", "22"]),
 ]
 _CPU_ARGS = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
+_ENCODER_LOCK = threading.RLock()
 _ENCODER_STATUS: dict[str, bool] = {}
 _PROBE_CACHE: dict[tuple[str, str], bool] = {}
-_PROBE_ERRORS: dict[str, str] = {}
+_PROBE_ERRORS: dict[tuple[str, str], str] = {}
+_ENCODER_LIST_CACHE: dict[str, str] = {}
 
 
 def _probe_encoder(ffmpeg: str, name: str, args: list[str]) -> bool:
     key = (ffmpeg, name)
-    if key in _PROBE_CACHE:
-        return _PROBE_CACHE[key]
+    with _ENCODER_LOCK:
+        if key in _PROBE_CACHE:
+            return _PROBE_CACHE[key]
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error",
         "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2",
         "-frames:v", "1", *args, "-pix_fmt", "yuv420p", "-f", "null", "-",
     ]
+    error = ""
     try:
         proc = subprocess.run(
             cmd,
@@ -309,25 +382,33 @@ def _probe_encoder(ffmpeg: str, name: str, args: list[str]) -> bool:
         ok = proc.returncode == 0
         if not ok:
             lines = proc.stderr.decode("utf-8", "replace").strip().splitlines()
-            _PROBE_ERRORS[name] = (lines[-1] if lines else f"exit {proc.returncode}")[:160]
+            error = (lines[-1] if lines else f"exit {proc.returncode}")[:160]
     except (OSError, subprocess.TimeoutExpired):
         ok = False
-        _PROBE_ERRORS[name] = "probe timeout"
-    _PROBE_CACHE[key] = ok
+        error = "probe timeout"
+    with _ENCODER_LOCK:
+        _PROBE_CACHE[key] = ok
+        if error:
+            _PROBE_ERRORS[key] = error
     return ok
 
 
 def detect_encoder(ffmpeg: str) -> str | None:
-    try:
-        proc = subprocess.run(
-            [ffmpeg, "-hide_banner", "-encoders"],
-            capture_output=True,
-            timeout=30,
-            creationflags=_CREATE_NO_WINDOW,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    text = proc.stdout.decode("utf-8", "replace") + proc.stderr.decode("utf-8", "replace")
+    with _ENCODER_LOCK:
+        text = _ENCODER_LIST_CACHE.get(ffmpeg)
+    if text is None:
+        try:
+            proc = subprocess.run(
+                [ffmpeg, "-hide_banner", "-encoders"],
+                capture_output=True,
+                timeout=30,
+                creationflags=_CREATE_NO_WINDOW,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        text = proc.stdout.decode("utf-8", "replace") + proc.stderr.decode("utf-8", "replace")
+        with _ENCODER_LOCK:
+            _ENCODER_LIST_CACHE[ffmpeg] = text
     for name, args in _HW_ENCODERS:
         if re.search(rf"\s{name}\s", text) and _probe_encoder(ffmpeg, name, args):
             return name
@@ -407,6 +488,7 @@ def render_clip(
     caption_style: str = "highlight",
     caption_font: str = "Arial Black",
     caption_bold: bool = True,
+    hook_style: str = "classic",
     watermark_position: str = "top-right",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
@@ -416,9 +498,11 @@ def render_clip(
 ) -> Path:
     if not ffmpeg:
         raise RuntimeError("ffmpeg was not found. Put ffmpeg.exe in assets/ffmpeg or install it on PATH.")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    workdir = output_path.parent
-    ass_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", output_path.stem).strip("._") or "captions"
+    in_abs = input_path.resolve()
+    out_abs = output_path.resolve()
+    out_abs.parent.mkdir(parents=True, exist_ok=True)
+    workdir = out_abs.parent
+    ass_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", out_abs.stem).strip("._") or "captions"
     ass_name = f"{ass_stem}.ass"
     use_ass = bool((captions and words) or (hook and hook_text.strip()) or credit.strip())
     if use_ass:
@@ -435,6 +519,7 @@ def render_clip(
                 caption_style=caption_style,
                 caption_font=caption_font,
                 caption_bold=caption_bold,
+                hook_style=hook_style,
                 credit_position=credit_position,
                 credit_opacity=credit_opacity,
                 translations=translations,
@@ -442,7 +527,7 @@ def render_clip(
             encoding="utf-8",
         )
 
-    logo = Path(watermark) if watermark and logo_opacity > 0 and Path(watermark).is_file() else None
+    logo = Path(watermark).resolve() if watermark and logo_opacity > 0 and Path(watermark).is_file() else None
     if watermark and logo_opacity > 0 and logo is None and on_log:
         on_log("Watermark file not found, skipping logo")
 
@@ -454,7 +539,7 @@ def render_clip(
         "-loglevel",
         "error",
         "-i",
-        str(input_path),
+        str(in_abs),
     ]
     if logo is not None:
         base_cmd += ["-i", str(logo)]
@@ -478,14 +563,17 @@ def render_clip(
         "-progress",
         "pipe:1",
         "-nostats",
-        str(output_path),
+        str(out_abs),
     ]
 
     hardware = detect_encoder(ffmpeg)
-    if hardware is None and on_log and _PROBE_ERRORS:
-        detail = "; ".join(f"{name}: {error}" for name, error in _PROBE_ERRORS.items())
+    with _ENCODER_LOCK:
+        probe_errors = {enc: msg for (bin_path, enc), msg in _PROBE_ERRORS.items() if bin_path == ffmpeg}
+        hw_failed = bool(hardware and _ENCODER_STATUS.get(hardware) is False)
+    if hardware is None and on_log and probe_errors:
+        detail = "; ".join(f"{name}: {error}" for name, error in probe_errors.items())
         on_log(f"Hardware encoder tidak tersedia ({detail}); memakai libx264")
-    if hardware and _ENCODER_STATUS.get(hardware) is False:
+    if hw_failed:
         hardware = None
     attempts: list[tuple[str, list[str]]] = []
     for name, args in _HW_ENCODERS:
@@ -496,11 +584,11 @@ def render_clip(
 
     last_error = ""
     for name, video_args in attempts:
-        cmd = base_cmd[:-1] + video_args + [str(output_path)]
+        cmd = base_cmd[:-1] + video_args + [str(out_abs)]
         if on_log:
             on_log(f"Rendering with {name}")
-        if output_path.exists():
-            output_path.unlink()
+        if out_abs.exists():
+            out_abs.unlink()
         process = subprocess.Popen(
             cmd,
             cwd=str(workdir),
@@ -509,6 +597,15 @@ def render_clip(
             creationflags=_CREATE_NO_WINDOW,
         )
         tail: list[str] = []
+        timed_out = threading.Event()
+
+        def _kill_on_timeout(proc=process, flag=timed_out) -> None:
+            flag.set()
+            proc.kill()
+
+        watchdog = threading.Timer(1800, _kill_on_timeout)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             assert process.stdout is not None
             for raw in process.stdout:
@@ -520,21 +617,30 @@ def render_clip(
                 if match and duration > 0 and on_progress:
                     percent = min(99.0, float(match.group(1)) / 1_000_000 / duration * 100)
                     on_progress(percent)
-            process.wait(timeout=1800)
+            process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             process.kill()
-            last_error = "ffmpeg timed out"
-            continue
+            timed_out.set()
         finally:
+            watchdog.cancel()
             if process.stdout:
                 process.stdout.close()
-        if process.returncode == 0 and output_path.exists() and output_path.stat().st_size > 1000:
-            _ENCODER_STATUS[name] = True
+        if timed_out.is_set():
+            last_error = "ffmpeg timed out"
+            with _ENCODER_LOCK:
+                _ENCODER_STATUS[name] = False
+            if on_log:
+                on_log(f"{name} timed out, trying fallback")
+            continue
+        if process.returncode == 0 and out_abs.exists() and out_abs.stat().st_size > 1000:
+            with _ENCODER_LOCK:
+                _ENCODER_STATUS[name] = True
             if on_progress:
                 on_progress(100.0)
             return output_path
         last_error = "\n".join(tail[-8:]) or f"ffmpeg exited with {process.returncode}"
-        _ENCODER_STATUS[name] = False
+        with _ENCODER_LOCK:
+            _ENCODER_STATUS[name] = False
         if on_log:
             on_log(f"{name} failed, trying fallback")
     raise RuntimeError(f"ffmpeg failed: {last_error}")

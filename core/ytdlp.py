@@ -48,7 +48,7 @@ def _base(url: str, cookies: str | None) -> list[str]:
     deno = deno_path()
     if deno:
         args += ["--js-runtimes", f"deno:{deno}"]
-    args.append(url)
+    args += ["--", url]
     return args
 
 
@@ -81,46 +81,48 @@ def video_info(url: str, cookies: str | None = None, timeout: int = 180) -> dict
         raise YtdlpError("Could not parse yt-dlp video info") from exc
 
 
-def subtitle_catalog(info: dict) -> dict:
-    manual = info.get("subtitles") or {}
-    automatic = info.get("automatic_captions") or {}
-    original = next((code for code in automatic if code.endswith("-orig")), None)
-    return {
-        "manual": sorted(manual),
-        "automatic": sorted(automatic),
-        "original": original,
-    }
-
-
 def pick_subtitle(info: dict, language: str | None) -> dict | None:
     manual = info.get("subtitles") or {}
     automatic = info.get("automatic_captions") or {}
     language = (language or "").strip()
+    if language.lower() == "auto":
+        language = ""
 
-    def auto_for(code: str) -> str | None:
-        for candidate in (f"{code}-orig", code):
-            if candidate in automatic:
+    def match_code(pool: dict, code: str) -> str | None:
+        low = code.lower()
+        for candidate in pool:
+            if candidate.lower() == low:
                 return candidate
-        for candidate in automatic:
-            if candidate.startswith(code + "-"):
+        prefix = low + "-"
+        for candidate in sorted(pool):
+            if candidate.lower().startswith(prefix):
                 return candidate
         return None
 
-    if language:
-        original = next((code for code in automatic if code.endswith("-orig")), None)
-        if original and (original[:-5] == language or original.startswith(language + "-")):
-            return {"kind": "auto", "code": original}
-        if language in manual:
-            return {"kind": "manual", "code": language}
-        auto = auto_for(language)
-        if auto:
-            return {"kind": "auto", "code": auto}
+    def auto_for(code: str) -> str | None:
+        low = code.lower()
+        for candidate in automatic:
+            if candidate.lower() == f"{low}-orig":
+                return candidate
+        return match_code(automatic, code)
 
-    original = next((code for code in automatic if code.endswith("-orig")), None)
+    original = next((code for code in automatic if code.lower().endswith("-orig")), None)
+    if language:
+        low = language.lower()
+        if original and (original[:-5].lower() == low or original.lower().startswith(low + "-")):
+            return {"kind": "auto", "code": original}
+        manual_hit = match_code(manual, language)
+        if manual_hit:
+            return {"kind": "manual", "code": manual_hit}
+        auto_hit = auto_for(language)
+        if auto_hit:
+            return {"kind": "auto", "code": auto_hit}
+
     if original:
         return {"kind": "auto", "code": original}
-    if "en" in manual:
-        return {"kind": "manual", "code": "en"}
+    en_manual = match_code(manual, "en")
+    if en_manual:
+        return {"kind": "manual", "code": en_manual}
     if manual:
         return {"kind": "manual", "code": sorted(manual)[0]}
     if automatic:

@@ -6,9 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from server import (  # noqa: E402
+    MAX_BODY,
     Handler,
+    _apply_settings,
     _normalize_caption_font,
     _normalize_caption_style,
+    _normalize_hook_style,
     _model_auth,
     _origin_allowed,
     _static_path,
@@ -189,6 +192,85 @@ class CaptionFontTests(unittest.TestCase):
         self.assertIsNotNone(block)
         values = re.findall(r'<option value="([^"]+)">', block.group(1))
         self.assertEqual(tuple(values), CAPTION_FONTS)
+
+
+class HookStyleTests(unittest.TestCase):
+    def test_all_hook_styles_accepted_and_ui_matches(self):
+        import re
+        from core.render import HOOK_STYLES
+
+        for style in HOOK_STYLES:
+            cfg = {"render": {"hookStyle": style}}
+            _normalize_hook_style(cfg)
+            self.assertEqual(cfg["render"]["hookStyle"], style)
+        bad = {"render": {"hookStyle": "nope"}}
+        _normalize_hook_style(bad)
+        self.assertEqual(bad["render"]["hookStyle"], "classic")
+
+        html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        block = re.search(r'<select id="hookStyle"[^>]*>(.*?)</select>', html, re.S)
+        self.assertIsNotNone(block)
+        values = re.findall(r'<option value="([^"]+)">', block.group(1))
+        self.assertEqual(tuple(values), HOOK_STYLES)
+
+
+class SettingsValidationTests(unittest.TestCase):
+    def test_apply_settings_clamps_whitelists_and_rejects_nonfinite(self):
+        from unittest import mock
+        import copy
+        from core.config import DEFAULTS
+
+        saved_holder = {}
+        with (
+            mock.patch("server.load", return_value=copy.deepcopy(DEFAULTS)),
+            mock.patch("server.save", side_effect=lambda cfg: saved_holder.setdefault("cfg", cfg)),
+            mock.patch("server._cleanup_old_watermark"),
+        ):
+            result = _apply_settings(
+                {
+                    "clip": {"minSeconds": float("nan"), "unknownKey": "drop-me"},
+                    "render": {"hookSeconds": 999, "background": "rainbow", "watermarkOpacity": float("inf")},
+                    "paths": {"evil": "nope"},
+                }
+            )
+        self.assertEqual(result["render"]["hookSeconds"], 10.0)
+        self.assertEqual(result["render"]["background"], "black")
+        self.assertEqual(result["render"]["watermarkOpacity"], 0.9)
+        self.assertNotIn("unknownKey", result["clip"])
+        self.assertNotIn("evil", result["paths"])
+
+    def test_max_body_fits_base64_6mb_watermark(self):
+        # 6 MB binary becomes 8 MB base64 plus JSON envelope.
+        self.assertGreater(MAX_BODY, (6 * 1024 * 1024 * 4) // 3 + 1024)
+
+    def test_apply_settings_rejects_non_http_base_url(self):
+        from unittest import mock
+        import copy
+        from core.config import DEFAULTS
+
+        with mock.patch("server.load", return_value=copy.deepcopy(DEFAULTS)):
+            with self.assertRaises(ValueError):
+                _apply_settings({"ai": {"baseUrl": "file:///etc/passwd"}})
+
+    def test_security_headers_present_on_html(self):
+        sent = {}
+
+        class Recorder:
+            def send_response(self, status):
+                sent["status"] = status
+
+            def send_header(self, k, v):
+                sent[k] = v
+
+            def end_headers(self):
+                pass
+
+        Handler._headers(Recorder(), 200, "text/html; charset=utf-8", 10)
+        self.assertEqual(sent.get("X-Content-Type-Options"), "nosniff")
+        self.assertEqual(sent.get("X-Frame-Options"), "DENY")
+        self.assertEqual(sent.get("Cross-Origin-Resource-Policy"), "same-origin")
+        self.assertIn("Permissions-Policy", sent)
+        self.assertIn("Content-Security-Policy", sent)
 
 
 if __name__ == "__main__":

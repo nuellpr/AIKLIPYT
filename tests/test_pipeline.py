@@ -5,7 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.pipeline import _bilingual_translations, cleanup_tmp  # noqa: E402
+from core import pipeline  # noqa: E402
+from core.pipeline import SessionBusyError, _bilingual_translations, cleanup_tmp, is_session_busy  # noqa: E402
 from core.subtitles import Word  # noqa: E402
 
 
@@ -54,6 +55,21 @@ class TmpCleanupTests(unittest.TestCase):
             self.assertEqual(removed, 2)
             self.assertEqual(list(tmp.iterdir()), [])
             self.assertEqual(cleanup_tmp(tmp / "missing"), 0)
+
+
+class SessionGuardTests(unittest.TestCase):
+    def test_concurrent_render_for_same_session_is_rejected(self):
+        sid = "20260101_000000_busytest"
+        with pipeline._lock:
+            pipeline._ACTIVE_SESSIONS.add(sid)
+        try:
+            self.assertTrue(is_session_busy(sid))
+            with self.assertRaises(SessionBusyError):
+                pipeline.start_render({"sessionId": sid, "indices": [0]})
+        finally:
+            with pipeline._lock:
+                pipeline._ACTIVE_SESSIONS.discard(sid)
+        self.assertFalse(is_session_busy(sid))
 
 
 if __name__ == "__main__":

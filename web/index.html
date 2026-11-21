@@ -45,9 +45,9 @@
     </div>
 
     <div class="profile">
-      <span class="avatar">N</span>
+      <span class="avatar">L</span>
       <div>
-        <strong>Nuel W.</strong>
+        <strong>Lokal</strong>
         <small>local workspace</small>
       </div>
     </div>
@@ -155,25 +155,30 @@
               <div class="panel-head">
                 <div>
                   <p class="panel-kicker">PREVIEW</p>
-                  <h2>9:16</h2>
+                  <h2 id="previewRatio">9:16</h2>
                 </div>
-                <span class="tag">LIVE MOCK</span>
+                <span class="tag" id="previewStyleTag">highlight</span>
               </div>
               <div class="phone-wrap">
-                <div class="phone">
+                <div class="phone" id="previewPhone">
+                  <img class="phone-bg hidden" id="previewBg" alt="">
+                  <img class="phone-video hidden" id="previewThumb" alt="">
                   <div class="phone-glow glow-lime"></div>
                   <div class="phone-glow glow-warm"></div>
-                  <div class="phone-top"><span>AIKLIPYT</span><span>● 9:16</span></div>
+                  <div class="phone-top"><span>AIKLIPYT</span><span id="previewFormat">● 9:16</span></div>
                   <p class="phone-hook" id="previewHook">Ini yang tidak dibicarakan.</p>
-                  <div class="phone-captions">
-                    <span>kita semua punya</span>
-                    <span class="active">rasa</span>
-                    <span>yang sama</span>
+                  <div class="phone-captions-wrap" id="previewCaptionsWrap">
+                    <div class="phone-caption-alt hidden" id="previewCaptionAlt">we all feel the same</div>
+                    <div class="phone-captions style-highlight" id="previewCaptions">
+                      <span>kita semua punya</span>
+                      <span class="active">rasa</span>
+                      <span>yang sama</span>
+                    </div>
                   </div>
                   <div class="phone-foot"><span id="previewMeta">AI PICK · —:—</span><span>H.264 · 30 FPS</span></div>
                 </div>
               </div>
-              <div class="preview-caption">Hasil akhir 1080 × 1920, caption per kata, hook di tiga detik pertama.</div>
+              <div class="preview-caption" id="previewCaptionNote">Tempel URL YouTube untuk melihat preview thumbnail, hook, dan gaya subtitle dari Pengaturan.</div>
             </aside>
 
             <aside class="panel job-panel" id="jobPanel">
@@ -203,9 +208,9 @@
         </div>
 
         <div class="pipeline">
-          <div class="pipe-step is-done"><b>01</b><span>TRANSKRIP</span><i>yt-dlp</i></div>
-          <div class="pipe-step"><b>02</b><span>HIGHLIGHT</span><i>AI pick</i></div>
-          <div class="pipe-step"><b>03</b><span>RENDER</span><i>ffmpeg</i></div>
+          <div class="pipe-step" id="pipeStep1"><b>01</b><span>TRANSKRIP</span><i>yt-dlp</i></div>
+          <div class="pipe-step" id="pipeStep2"><b>02</b><span>HIGHLIGHT</span><i>AI pick</i></div>
+          <div class="pipe-step" id="pipeStep3"><b>03</b><span>RENDER</span><i>ffmpeg</i></div>
           <div class="pipe-note">Semua proses berjalan di mesin ini</div>
         </div>
 
@@ -246,6 +251,7 @@
               <p class="sub" id="detailMeta"></p>
             </div>
             <div class="row-actions">
+              <button class="btn ghost small" id="loadToCreate" type="button">Muat highlight</button>
               <button class="btn ghost small" id="openOutput" type="button">Buka folder</button>
               <button class="btn danger small" id="deleteSession" type="button">Hapus sesi</button>
             </div>
@@ -306,9 +312,9 @@
             </label>
           </section>
 
-          <section class="panel">
-            <div class="panel-head"><h2>Klip</h2><span class="tag">durasi</span></div>
-            <div class="field-row">
+          <section class="panel panel-wide">
+            <div class="panel-head"><h2>Klip, Subtitle &amp; Hook</h2><span class="tag">durasi &amp; gaya</span></div>
+            <div class="field-row field-row-3">
               <label class="field">
                 <span>Minimum (detik)</span>
                 <input id="minSeconds" type="number" min="5" max="600" step="1">
@@ -317,86 +323,131 @@
                 <span>Maksimum (detik)</span>
                 <input id="maxSeconds" type="number" min="5" max="600" step="1">
               </label>
-            </div>
-            <label class="field">
-              <span>Padding (detik)</span>
-              <input id="padding" type="number" min="0" max="5" step="0.05">
-            </label>
-            <label class="check">
-              <input id="portrait" type="checkbox">
-              <span>Reframe vertikal 9:16</span>
-            </label>
-            <label class="field">
-              <span>Latar vertikal</span>
-              <select id="background">
-                <option value="black">Hitam</option>
-                <option value="blurred">Blur dari video</option>
-              </select>
-            </label>
-            <label class="check">
-              <input id="captions" type="checkbox">
-              <span>Caption per kata</span>
-            </label>
-            <div class="field-row">
               <label class="field">
-                <span>Warna aksen caption</span>
-                <input id="captionColor" type="color" value="#ffd700">
+                <span>Padding (detik)</span>
+                <input id="padding" type="number" min="0" max="5" step="0.05">
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="check">
+                <input id="portrait" type="checkbox">
+                <span>Reframe vertikal 9:16</span>
               </label>
               <label class="field">
-                <span>Gaya karaoke</span>
-                <select id="captionStyle">
-                  <option value="highlight">Highlight kata</option>
-                  <option value="box">Kotak tebal</option>
-                  <option value="pop">Pop membesar</option>
-                  <optgroup label="Gaya Wayin">
-                    <option value="smart-bg-focus">Smart background focus</option>
-                    <option value="box-highlight">Box highlight (satu kata)</option>
-                    <option value="word-focus">Word focus</option>
-                    <option value="underline-focus">Underline focus</option>
-                    <option value="outline-focus">Outline focus</option>
-                    <option value="temp-0">temp-0 (outline putih)</option>
-                  </optgroup>
-                  <optgroup label="Gaya kreator">
-                    <option value="hormozi">Hormozi (besar, tebal)</option>
-                    <option value="karaoke">Karaoke (sapuan kata)</option>
-                    <option value="gadzhi">Gadzhi (minimalis)</option>
-                    <option value="mrbeast">MrBeast (warna-warni)</option>
-                    <option value="bilingual">Bilingual (dua bahasa)</option>
-                  </optgroup>
+                <span>Latar vertikal</span>
+                <select id="background">
+                  <option value="black">Hitam</option>
+                  <option value="blurred">Blur dari video</option>
                 </select>
               </label>
             </div>
-            <label class="field">
-              <span>Font subtitle</span>
-              <select id="captionFont">
-                <option value="Arial Black">Arial Black (tebal bawaan)</option>
-                <option value="Arial">Arial</option>
-                <option value="Impact">Impact (tebal bawaan)</option>
-                <option value="Segoe UI">Segoe UI</option>
-                <option value="Bahnschrift">Bahnschrift</option>
-                <option value="Verdana">Verdana</option>
-                <option value="Tahoma">Tahoma</option>
-                <option value="Trebuchet MS">Trebuchet MS</option>
-                <option value="Calibri">Calibri</option>
-                <option value="Georgia">Georgia</option>
-                <option value="Times New Roman">Times New Roman</option>
-                <option value="Comic Sans MS">Comic Sans MS</option>
-                <option value="Consolas">Consolas</option>
+
+            <div class="style-picker" id="subtitlePicker">
+              <div class="style-picker-head">
+                <strong>Subtitle</strong>
+                <div class="style-picker-actions">
+                  <button type="button" class="link-btn" id="toggleCaptionTuning">Warna &amp; font</button>
+                  <label class="check check-compact" title="Aktifkan caption per kata">
+                    <input id="captions" type="checkbox">
+                  </label>
+                </div>
+              </div>
+              <div class="style-carousel">
+                <button type="button" class="carousel-arrow left" data-scroll="captionStyleStrip" data-dir="-1" aria-label="Geser kiri">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div class="style-strip" id="captionStyleStrip" role="radiogroup" aria-label="Gaya subtitle"></div>
+                <button type="button" class="carousel-arrow right" data-scroll="captionStyleStrip" data-dir="1" aria-label="Geser kanan">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+              <select id="captionStyle" class="hidden" aria-hidden="true" tabindex="-1">
+                <option value="highlight">Highlight kata</option>
+                <option value="box">Kotak tebal</option>
+                <option value="pop">Pop membesar</option>
+                <option value="smart-bg-focus">Smart background focus</option>
+                <option value="box-highlight">Box highlight (satu kata)</option>
+                <option value="word-focus">Word focus</option>
+                <option value="underline-focus">Underline focus</option>
+                <option value="outline-focus">Outline focus</option>
+                <option value="temp-0">temp-0 (outline putih)</option>
+                <option value="hormozi">Hormozi (besar, tebal)</option>
+                <option value="karaoke">Karaoke (sapuan kata)</option>
+                <option value="gadzhi">Gadzhi (minimalis)</option>
+                <option value="mrbeast">MrBeast (warna-warni)</option>
+                <option value="bilingual">Bilingual (dua bahasa)</option>
               </select>
-            </label>
-            <label class="check">
-              <input id="captionBold" type="checkbox">
-              <span>Huruf subtitle tebal (Bold)</span>
-            </label>
-            <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Font <b>Arial Black</b> dan <b>Impact</b> selalu tebal dari bawaan font; pilih font lain (mis. Arial, Segoe UI, Verdana) untuk membedakan Bold/Normal. Gaya Gadzhi tetap tipis minimalis. Bilingual memakai endpoint AI untuk menerjemahkan tiap grup kata ke Bahasa output default di Pengaturan.</p>
-            <label class="check">
-              <input id="hook" type="checkbox">
-              <span>Hook di awal klip</span>
-            </label>
-            <label class="field">
-              <span>Durasi hook (detik)</span>
-              <input id="hookSeconds" type="number" min="0.5" max="10" step="0.5">
-            </label>
+              <div class="tuning-drawer hidden" id="captionTuning">
+                <div class="field-row field-row-3">
+                  <label class="field">
+                    <span>Warna aksen</span>
+                    <input id="captionColor" type="color" value="#ffd700">
+                  </label>
+                  <label class="field">
+                    <span>Font subtitle</span>
+                    <select id="captionFont">
+                      <option value="Arial Black">Arial Black (tebal bawaan)</option>
+                      <option value="Arial">Arial</option>
+                      <option value="Impact">Impact (tebal bawaan)</option>
+                      <option value="Segoe UI">Segoe UI</option>
+                      <option value="Bahnschrift">Bahnschrift</option>
+                      <option value="Verdana">Verdana</option>
+                      <option value="Tahoma">Tahoma</option>
+                      <option value="Trebuchet MS">Trebuchet MS</option>
+                      <option value="Calibri">Calibri</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                      <option value="Comic Sans MS">Comic Sans MS</option>
+                      <option value="Consolas">Consolas</option>
+                    </select>
+                  </label>
+                  <label class="check">
+                    <input id="captionBold" type="checkbox">
+                    <span>Huruf tebal (Bold)</span>
+                  </label>
+                </div>
+                <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Font <b>Arial Black</b> dan <b>Impact</b> selalu tebal bawaan; gaya Gadzhi tetap tipis minimalis; Bilingual menerjemahkan ke Bahasa output default di Pengaturan.</p>
+              </div>
+            </div>
+
+            <div class="style-picker" id="hookPicker">
+              <div class="style-picker-head">
+                <strong>Judul pembuka</strong>
+                <div class="style-picker-actions">
+                  <button type="button" class="link-btn" id="toggleHookTuning">Durasi</button>
+                  <label class="check check-compact" title="Aktifkan hook di awal klip">
+                    <input id="hook" type="checkbox">
+                  </label>
+                </div>
+              </div>
+              <div class="style-carousel">
+                <button type="button" class="carousel-arrow left" data-scroll="hookStyleStrip" data-dir="-1" aria-label="Geser kiri">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div class="style-strip" id="hookStyleStrip" role="radiogroup" aria-label="Gaya judul pembuka"></div>
+                <button type="button" class="carousel-arrow right" data-scroll="hookStyleStrip" data-dir="1" aria-label="Geser kanan">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+              <select id="hookStyle" class="hidden" aria-hidden="true" tabindex="-1">
+                <option value="classic">Klasik</option>
+                <option value="card">Kartu</option>
+                <option value="quote">Kutipan</option>
+                <option value="accent-bar">Bar Aksen</option>
+                <option value="cinema">Sinema</option>
+                <option value="neon">Neon Glow</option>
+                <option value="breaking">Breaking News</option>
+                <option value="impact">Impact Slam</option>
+                <option value="tape">Stiker Miring</option>
+                <option value="spotlight">Sorot</option>
+              </select>
+              <div class="tuning-drawer hidden" id="hookTuning">
+                <label class="field">
+                  <span>Durasi hook (detik)</span>
+                  <input id="hookSeconds" type="number" min="0.5" max="10" step="0.5">
+                </label>
+              </div>
+            </div>
           </section>
 
           <section class="panel">
@@ -470,7 +521,7 @@
             <p class="eyebrow">TENTANG APLIKASI</p>
             <h1>AIKLIPYT</h1>
           </div>
-          <span class="tag">v1.0.4</span>
+          <span class="tag" data-version-tag>v1.0.5</span>
         </div>
 
         <div class="about-grid">
@@ -492,15 +543,18 @@
           <section class="panel">
             <div class="panel-head"><h2>Detail</h2><span class="tag">edisi lokal</span></div>
             <dl class="about-meta">
-              <div><dt>Versi</dt><dd>1.0.4</dd></div>
+              <div><dt>Versi</dt><dd data-version>1.0.5</dd></div>
+              <div><dt>Lisensi</dt><dd>MIT</dd></div>
               <div><dt>Mesin</dt><dd>Python 3.11+</dd></div>
-              <div><dt>Render</dt><dd>FFmpeg 8.0.1</dd></div>
+              <div><dt>Render</dt><dd>FFmpeg (lokal)</dd></div>
               <div><dt>Subtitle</dt><dd>yt-dlp</dd></div>
               <div><dt>Data</dt><dd>Tersimpan lokal</dd></div>
             </dl>
             <div class="about-links">
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT" target="_blank" rel="noreferrer">GitHub</a>
-              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4" target="_blank" rel="noreferrer">Rilis v1.0.4</a>
+              <a class="btn ghost small" data-release-link href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5" target="_blank" rel="noreferrer">Rilis v1.0.5</a>
+              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/LICENSE" target="_blank" rel="noreferrer">Lisensi MIT</a>
+              <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Keamanan</a>
               <a class="btn ghost small" href="https://www.figma.com/design/P83HXlUX9HexU1lZJeWkRa" target="_blank" rel="noreferrer">Desain Figma</a>
             </div>
           </section>
@@ -518,7 +572,7 @@
     </main>
 
     <footer>
-      <span>AIKLIPYT v1.0.4 · lokal, tanpa telemetri</span>
+      <span>AIKLIPYT <span data-version-tag>v1.0.5</span> · MIT · lokal, tanpa telemetri</span>
       <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
     </footer>
   </div>
