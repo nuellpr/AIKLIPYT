@@ -22,11 +22,18 @@ executables so the app works without separate downloads:
 - License: MIT. Copyright 2018-2026 the Deno authors.
   License text: `licenses/MIT-Deno.txt`.
 
+## YuNet Face Detection Model (OpenCV Zoo)
+
+- Path: `assets/models/face_detection_yunet_2023mar.onnx`
+- Project: https://github.com/opencv/opencv_zoo
+- License: MIT License
+
 ## Python packages
 
-`yt-dlp` is installed into a local virtual environment by `run.bat` on first
-launch. It is not bundled in the ZIP. yt-dlp is released under the Unlicense:
-https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
+`yt-dlp` (Unlicense, https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE) and
+`opencv-python-headless` (Apache-2.0, https://github.com/opencv/opencv-python)
+are installed into a local virtual environment by `run.bat` on first launch.
+They are not bundled in the ZIP.
 
 AIKLIPYT itself is an independent clean-room implementation and is not
 affiliated with the original YT Short Clipper project.

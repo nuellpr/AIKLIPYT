@@ -4,10 +4,11 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import textwrap
 import threading
 from pathlib import Path
 
-from .subtitles import Word
+from .subtitles import Word, normalize_words
 
 _CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -60,7 +61,19 @@ HOOK_STYLES = (
     "impact",
     "tape",
     "spotlight",
+    "retro-card",
 )
+BACKGROUND_MODES = (
+    "black",
+    "blurred",
+    "fill",
+    "split",
+    "crop-left",
+    "crop-right",
+    "facecam-top",
+    "cinema",
+)
+FACECAM_CORNERS = ("top-left", "top-right", "bottom-left", "bottom-right")
 CAPTION_FONTS = (
     "Arial Black",
     "Arial",
@@ -155,6 +168,89 @@ def _credit_tag(position: str, width: int, height: int, margin: int, opacity: fl
     return rf"{{\an{align}\pos({x},{y}){fade}}}"
 
 
+def _ass_round_rect(w: int, h: int, r: int) -> str:
+    k = int(round(r * 0.448))
+    return (
+        f"m {r} 0 "
+        f"l {w - r} 0 "
+        f"b {w - k} 0 {w} {k} {w} {r} "
+        f"l {w} {h - r} "
+        f"b {w} {h - k} {w - k} {h} {w - r} {h} "
+        f"l {r} {h} "
+        f"b {k} {h} 0 {h - k} 0 {h - r} "
+        f"l 0 {r} "
+        f"b 0 {k} {k} 0 {r} 0"
+    )
+
+
+def _retro_card_events(hook_text: str, hook_end: float, width: int, height: int) -> list[str]:
+    portrait = height >= width
+    if portrait:
+        x, y, w, h, r, dx, dy = 64, 1360, 952, 330, 22, 22, 22
+        fs, wrap_w, tx, ty = 58, 26, 64 + 48, 1360 + 88
+    else:
+        x, y, w, h, r, dx, dy = 340, 720, 1240, 250, 18, 18, 18
+        fs, wrap_w, tx, ty = 46, 40, 340 + 44, 720 + 68
+
+    t0, t1 = ass_time(0), ass_time(hook_end)
+    card_shape = _ass_round_rect(w, h, r)
+    out: list[str] = [
+        f"Dialogue: 1,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x + dx},{y + dy})\\p1\\c&H0069E1FF&\\3c&H000000&\\bord6\\shad0\\fad(140,160)}}{card_shape}{{\\p0}}"
+    ]
+    hatches: list[str] = []
+    for sx in range(dx + 20, w - 6, 44):
+        hatches.append(f"m {sx} {h - 2} l {sx + 6} {h - 2} l {sx - 10} {h + dy} l {sx - 16} {h + dy}")
+    for sy in range(dy + 20, h - 6, 44):
+        hatches.append(f"m {w - 2} {sy + 8} l {w + dx} {sy - 6} l {w + dx} {sy} l {w - 2} {sy + 14}")
+    if hatches:
+        out.append(
+            f"Dialogue: 1,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x},{y})\\p1\\c&H000000&\\bord0\\shad0\\fad(140,160)}}{' '.join(hatches)}{{\\p0}}"
+        )
+    out.append(
+        f"Dialogue: 2,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x},{y})\\p1\\c&H0069E1FF&\\3c&H000000&\\bord6\\shad0\\fad(140,160)}}{card_shape}{{\\p0}}"
+    )
+    pill_lg = _ass_round_rect(76, 10, 5)
+    pill_sm = _ass_round_rect(26, 10, 5)
+    out.extend(
+        [
+            f"Dialogue: 2,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x + 44},{y + 30})\\p1\\c&H000000&\\bord0\\shad0\\fad(140,160)}}{pill_lg}{{\\p0}}",
+            f"Dialogue: 2,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x + 130},{y + 30})\\p1\\c&H000000&\\bord0\\shad0\\fad(140,160)}}{pill_sm}{{\\p0}}",
+            f"Dialogue: 2,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x + w - 168},{y + h - 44})\\p1\\c&H000000&\\bord0\\shad0\\fad(140,160)}}{pill_sm}{{\\p0}}",
+            f"Dialogue: 2,{t0},{t1},Hook,,0,0,0,,{{\\an7\\pos({x + w - 132},{y + h - 44})\\p1\\c&H000000&\\bord0\\shad0\\fad(140,160)}}{pill_lg}{{\\p0}}",
+        ]
+    )
+
+    escaped = ass_escape(hook_text)
+    lines = textwrap.wrap(escaped, width=wrap_w)[:3] or [escaped]
+    wrapped = r"\N".join(lines)
+    units: list[str] = []
+    pos = 0
+    while pos < len(wrapped):
+        if wrapped.startswith(r"\N", pos):
+            units.append(r"\N")
+            pos += 2
+        else:
+            units.append(wrapped[pos])
+            pos += 1
+
+    text_tag = rf"{{\an7\pos({tx},{ty})\fnArial Black\fs{fs}\b1\c&H00FFFFFF&\3c&H000000&\bord7\shad0}}"
+    reveal_end = min(hook_end * 0.65, 2.6)
+    steps = min(24, len(units), max(1, int(reveal_end / 0.04)))
+    prev_count = 0
+    for step in range(1, steps + 1):
+        count = max(1, int(round(step * len(units) / steps)))
+        if count <= prev_count:
+            continue
+        prev_count = count
+        shown = "".join(units[:count])
+        s0 = reveal_end * (step - 1) / steps
+        s1 = reveal_end * step / steps
+        if ass_time(s1) > ass_time(s0):
+            out.append(f"Dialogue: 3,{ass_time(s0)},{ass_time(s1)},Hook,,0,0,0,,{text_tag}{shown}")
+    out.append(f"Dialogue: 3,{ass_time(reveal_end)},{t1},Hook,,0,0,0,,{text_tag}{{\\fad(0,160)}}{wrapped}")
+    return out
+
+
 def build_ass(
     words: list[Word],
     hook_text: str = "",
@@ -167,12 +263,14 @@ def build_ass(
     caption_style: str = "highlight",
     caption_font: str = "Arial Black",
     caption_bold: bool = True,
+    caption_uppercase: bool = False,
     hook_style: str = "classic",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
     translations: list[str] | None = None,
 ) -> str:
     portrait = height >= width
+    words = normalize_words(words)
     margin = 60 if portrait else 40
     accent = _ass_color(caption_color)
     if caption_style not in CAPTION_STYLES:
@@ -195,18 +293,22 @@ def build_ass(
         credit_size=40 if portrait else 32,
         alt_size=46 if portrait else 38,
         margin=margin,
-        bottom_margin=260 if portrait else 80,
+        bottom_margin=300 if portrait else 80,
         top_margin=220 if portrait else 70,
-        alt_margin=(260 if portrait else 80) + 96,
+        alt_margin=(300 if portrait else 80) + 96,
         hook_color=accent,
     )
     events: list[str] = []
     end_of_video = duration or (words[-1].end if words else 0.0)
 
+    retro_hook_end = 0.0
     if hook_text.strip():
         hook_end = min(max(0.5, hook_seconds), max(0.5, end_of_video)) if end_of_video else max(0.5, hook_seconds)
         escaped_hook = ass_escape(hook_text)
-        if hook_style == "card":
+        if hook_style == "retro-card":
+            events.extend(_retro_card_events(hook_text, hook_end, width, height))
+            retro_hook_end = hook_end
+        elif hook_style == "card":
             events.append(
                 f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\fad(180,180)}}{escaped_hook}"
             )
@@ -252,8 +354,16 @@ def build_ass(
                 f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{escaped_hook.upper()}"
             )
 
+    def _caption_mv(start_t: float, alt: bool = False) -> int:
+        if retro_hook_end > 0 and start_t < retro_hook_end:
+            return (696 if alt else 600) if portrait else (440 if alt else 360)
+        return 0
+
     groups = group_words(words)
+    word_offset = 0
     for group_index, group in enumerate(groups):
+        group_offset = word_offset
+        word_offset += len(group)
         next_start = groups[group_index + 1][0].start if group_index + 1 < len(groups) else None
         group_end = group[-1].end + 0.12
         if next_start is not None and next_start > group[-1].start:
@@ -262,32 +372,40 @@ def build_ass(
             kf = []
             for i, w in enumerate(group):
                 dur = (group[i + 1].start - w.start) if i + 1 < len(group) else (w.end - w.start)
-                kf.append(r"{\kf" + str(max(1, int(round(dur * 100)))) + "}" + ass_escape(w.word))
+                tok = ass_escape(w.word)
+                if caption_uppercase:
+                    tok = tok.upper()
+                kf.append(r"{\kf" + str(max(1, int(round(dur * 100)))) + "}" + tok)
             if kf:
                 text = r"{\2c&H00FFFFFF&}" + _color_tag(accent) + " ".join(kf)
                 line_end = group_end if group_end > group[0].start else group[0].start + 0.06
+                mv = _caption_mv(group[0].start)
                 events.append(
-                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(line_end)},Caption,,0,0,0,,{text}"
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(line_end)},Caption,,0,0,{mv},,{text}"
                 )
             continue
         event_style = "CaptionBg" if caption_style == "smart-bg-focus" else "Caption"
         for index, word in enumerate(group):
             start = word.start
+            limit = group[index + 1].start if index + 1 < len(group) else next_start
             end = group[index + 1].start if index + 1 < len(group) else group_end
             if end <= start:
-                end = start + 0.06
+                end = min(start + 0.06, limit) if limit is not None and limit > start else start + 0.06
+            mv = _caption_mv(start)
             if caption_style == "box-highlight":
                 token = ass_escape(word.word)
+                if caption_uppercase:
+                    token = token.upper()
                 if token:
-                    text = f"{{\\c&H000000&\\3c{accent}\\bord14\\shad0}}{token}{{\\rCaption}}"
-                    events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Caption,,0,0,0,,{text}")
+                    text = f"{{\\c&H000000&\\3c{accent}\\bord14\\shad0}}{token}{{\\rCaptionBg}}"
+                    events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},CaptionBg,,0,0,{mv},,{text}")
                 continue
             parts = []
             for other_index, other in enumerate(group):
                 token = ass_escape(other.word)
                 if not token:
                     continue
-                if caption_style in ("underline-focus", "temp-0", "hormozi", "mrbeast"):
+                if caption_uppercase or caption_style in ("underline-focus", "temp-0", "hormozi", "mrbeast"):
                     token = token.upper()
                 if other_index == index:
                     if caption_style == "box":
@@ -309,7 +427,7 @@ def build_ass(
                     elif caption_style == "gadzhi":
                         parts.append(_color_tag(accent) + gadzhi_base + token + r"{\rCaption}" + gadzhi_base)
                     elif caption_style == "mrbeast":
-                        color = MRBEAST_COLORS[other_index % len(MRBEAST_COLORS)]
+                        color = MRBEAST_COLORS[(group_offset + other_index) % len(MRBEAST_COLORS)]
                         parts.append(f"{{\\c{color}\\bord8\\3c&HFFFFFF&\\shad2\\fscx120\\fscy120}}" + token + r"{\rCaption}")
                     else:
                         parts.append(_color_tag(accent) + token + _WHITE)
@@ -331,13 +449,17 @@ def build_ass(
             if not parts:
                 continue
             text = " ".join(parts)
-            events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{event_style},,0,0,0,,{text}")
+            events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},{event_style},,0,0,{mv},,{text}")
         if caption_style == "bilingual" and translations and group_index < len(translations):
             translated = (translations[group_index] or "").strip()
             if translated:
                 alt_end = group_end if group_end > group[0].start else group[0].start + 0.06
+                alt_text = ass_escape(translated)
+                if caption_uppercase:
+                    alt_text = alt_text.upper()
+                alt_mv = _caption_mv(group[0].start, alt=True)
                 events.append(
-                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(alt_end)},CaptionAlt,,0,0,0,,{ass_escape(translated)}"
+                    f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(alt_end)},CaptionAlt,,0,0,{alt_mv},,{alt_text}"
                 )
 
     if credit.strip():
@@ -415,7 +537,44 @@ def detect_encoder(ffmpeg: str) -> str | None:
     return None
 
 
-def _portrait_chain(background: str) -> str:
+_SHARP_POST = "unsharp=3:3:0.5:3:3:0.0"
+
+_FACECAM_COORDS = {
+    "top-left": ("0", "0"),
+    "top-right": ("iw-ow", "0"),
+    "bottom-left": ("0", "ih-oh"),
+    "bottom-right": ("iw-ow", "ih-oh"),
+}
+
+
+def _portrait_chain(background: str, facecam_corner: str = "top-right") -> str:
+    if background == "fill":
+        return f"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,{_SHARP_POST}"
+    if background == "crop-left":
+        return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-ow)*0.15:(ih-oh)/2"
+    if background == "crop-right":
+        return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-ow)*0.85:(ih-oh)/2"
+    if background == "split":
+        return (
+            "split=2[sl][sr];"
+            "[sl]crop=trunc(iw/2):ih:0:0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[stop];"
+            "[sr]crop=trunc(iw/2):ih:trunc(iw/2):0,scale=1080:960:force_original_aspect_ratio=increase,crop=1080:960,setsar=1[sbot];"
+            "[stop][sbot]vstack=inputs=2"
+        )
+    if background == "facecam-top":
+        cx, cy = _FACECAM_COORDS.get(facecam_corner, _FACECAM_COORDS["top-right"])
+        return (
+            "split=2[fc][gm];"
+            f"[fc]crop=trunc(iw*0.30):trunc(ih*0.32):{cx}:{cy},scale=1080:640:force_original_aspect_ratio=increase,crop=1080:640,setsar=1[ftop];"
+            "[gm]scale=1080:1280:force_original_aspect_ratio=increase,crop=1080:1280,setsar=1[fbot];"
+            "[ftop][fbot]vstack=inputs=2"
+        )
+    if background == "cinema":
+        return (
+            "scale=1080:1350:force_original_aspect_ratio=increase,"
+            "crop=1080:1350,"
+            "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black"
+        )
     if background == "blurred":
         return (
             "split=2[bg][fg];"
@@ -427,6 +586,43 @@ def _portrait_chain(background: str) -> str:
         "scale=1080:1920:force_original_aspect_ratio=decrease,"
         "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black"
     )
+
+
+def _shot_segment_filter(shot, prefix: str = "", out: str = "", split_prefix: str = "r") -> str:
+    if shot.mode == "split":
+        sl, sr = f"{split_prefix}l", f"{split_prefix}r"
+        st, sb = f"{split_prefix}t", f"{split_prefix}b"
+        end_tag = f"[{out}]" if out else ""
+        return (
+            f"{prefix}split=2[{sl}][{sr}];"
+            f"[{sl}]crop=trunc(iw/2):ih:0:0,scale=1080:960:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:960,{_SHARP_POST},setsar=1[{st}];"
+            f"[{sr}]crop=trunc(iw/2):ih:trunc(iw/2):0,scale=1080:960:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:960,{_SHARP_POST},setsar=1[{sb}];"
+            f"[{st}][{sb}]vstack=inputs=2{end_tag}"
+        )
+    end_tag = f"[{out}]" if out else ""
+    return (
+        f"{prefix}crop={shot.crop_w}:{shot.crop_h}:{shot.crop_x}:{shot.crop_y},"
+        f"scale=1080:1920:flags=lanczos,{_SHARP_POST},setsar=1{end_tag}"
+    )
+
+
+def _reframe_chain(shots: list) -> str:
+    if len(shots) == 1:
+        return _shot_segment_filter(shots[0])
+    n = len(shots)
+    split_labels = "".join(f"[rs{i}]" for i in range(n))
+    parts = [f"split={n}{split_labels}"]
+    for i, shot in enumerate(shots):
+        if i == 0:
+            trim = f"trim=end={shot.end:.3f}"
+        elif i == n - 1:
+            trim = f"trim=start={shot.start:.3f}"
+        else:
+            trim = f"trim=start={shot.start:.3f}:end={shot.end:.3f}"
+        parts.append(_shot_segment_filter(shot, prefix=f"[rs{i}]{trim},setpts=PTS-STARTPTS,", out=f"ro{i}", split_prefix=f"r{i}"))
+    concat_inputs = "".join(f"[ro{i}]" for i in range(n))
+    parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0")
+    return ";".join(parts)
 
 
 def _logo_xy(position: str) -> tuple[str, str]:
@@ -451,11 +647,16 @@ def _filter_complex(
     logo_opacity: float,
     logo_position: str = "top-right",
     ass_file: str = "captions.ass",
+    facecam_corner: str = "top-right",
+    reframe_shots: list | None = None,
 ) -> str:
-    chain = _portrait_chain(background) if portrait else (
-        "scale=1920:1080:force_original_aspect_ratio=decrease,"
-        "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"
-    )
+    if portrait and background == "fill" and reframe_shots:
+        chain = _reframe_chain(reframe_shots)
+    else:
+        chain = _portrait_chain(background, facecam_corner) if portrait else (
+            "scale=1920:1080:force_original_aspect_ratio=decrease,"
+            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"
+        )
     graph = f"[0:v]{chain}"
     if use_ass:
         graph += f",ass={ass_file}"
@@ -488,11 +689,14 @@ def render_clip(
     caption_style: str = "highlight",
     caption_font: str = "Arial Black",
     caption_bold: bool = True,
+    caption_uppercase: bool = False,
     hook_style: str = "classic",
     watermark_position: str = "top-right",
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
     translations: list[str] | None = None,
+    facecam_corner: str = "top-right",
+    reframe_shots: list | None = None,
     on_progress=None,
     on_log=None,
 ) -> Path:
@@ -519,6 +723,7 @@ def render_clip(
                 caption_style=caption_style,
                 caption_font=caption_font,
                 caption_bold=caption_bold,
+                caption_uppercase=caption_uppercase,
                 hook_style=hook_style,
                 credit_position=credit_position,
                 credit_opacity=credit_opacity,
@@ -531,7 +736,17 @@ def render_clip(
     if watermark and logo_opacity > 0 and logo is None and on_log:
         on_log("Watermark file not found, skipping logo")
 
-    graph = _filter_complex(portrait, background, use_ass, logo, logo_opacity, watermark_position, ass_file=ass_name)
+    graph = _filter_complex(
+        portrait,
+        background,
+        use_ass,
+        logo,
+        logo_opacity,
+        watermark_position,
+        ass_file=ass_name,
+        facecam_corner=facecam_corner,
+        reframe_shots=reframe_shots,
+    )
     base_cmd = [
         ffmpeg,
         "-y",
@@ -582,68 +797,74 @@ def render_clip(
             break
     attempts.append(("libx264", _CPU_ARGS))
 
+    tmp_abs = out_abs.with_name(f".{out_abs.stem}.tmp{out_abs.suffix}")
     last_error = ""
-    for name, video_args in attempts:
-        cmd = base_cmd[:-1] + video_args + [str(out_abs)]
-        if on_log:
-            on_log(f"Rendering with {name}")
-        if out_abs.exists():
-            out_abs.unlink()
-        process = subprocess.Popen(
-            cmd,
-            cwd=str(workdir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            creationflags=_CREATE_NO_WINDOW,
-        )
-        tail: list[str] = []
-        timed_out = threading.Event()
+    try:
+        for name, video_args in attempts:
+            cmd = base_cmd[:-1] + video_args + [str(tmp_abs)]
+            if on_log:
+                on_log(f"Rendering with {name}")
+            tmp_abs.unlink(missing_ok=True)
+            process = subprocess.Popen(
+                cmd,
+                cwd=str(workdir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                creationflags=_CREATE_NO_WINDOW,
+            )
+            tail: list[str] = []
+            timed_out = threading.Event()
 
-        def _kill_on_timeout(proc=process, flag=timed_out) -> None:
-            flag.set()
-            proc.kill()
+            def _kill_on_timeout(proc=process, flag=timed_out) -> None:
+                flag.set()
+                proc.kill()
 
-        watchdog = threading.Timer(1800, _kill_on_timeout)
-        watchdog.daemon = True
-        watchdog.start()
-        try:
-            assert process.stdout is not None
-            for raw in process.stdout:
-                line = raw.decode("utf-8", "replace").strip()
-                if not line:
-                    continue
-                tail = (tail + [line])[-30:]
-                match = re.match(r"out_time_us=(\d+)", line)
-                if match and duration > 0 and on_progress:
-                    percent = min(99.0, float(match.group(1)) / 1_000_000 / duration * 100)
-                    on_progress(percent)
-            process.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            timed_out.set()
-        finally:
-            watchdog.cancel()
-            if process.stdout:
-                process.stdout.close()
-        if timed_out.is_set():
-            last_error = "ffmpeg timed out"
+            watchdog = threading.Timer(1800, _kill_on_timeout)
+            watchdog.daemon = True
+            watchdog.start()
+            try:
+                assert process.stdout is not None
+                for raw in process.stdout:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line:
+                        continue
+                    tail = (tail + [line])[-30:]
+                    match = re.match(r"out_time_us=(\d+)", line)
+                    if match and duration > 0 and on_progress:
+                        percent = min(99.0, float(match.group(1)) / 1_000_000 / duration * 100)
+                        on_progress(percent)
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                timed_out.set()
+            finally:
+                watchdog.cancel()
+                if process.stdout:
+                    process.stdout.close()
+            if timed_out.is_set():
+                tmp_abs.unlink(missing_ok=True)
+                last_error = "ffmpeg timed out"
+                with _ENCODER_LOCK:
+                    _ENCODER_STATUS[name] = False
+                if on_log:
+                    on_log(f"{name} timed out, trying fallback")
+                continue
+            if process.returncode == 0 and tmp_abs.exists() and tmp_abs.stat().st_size > 1000:
+                tmp_abs.replace(out_abs)
+                with _ENCODER_LOCK:
+                    _ENCODER_STATUS[name] = True
+                if on_progress:
+                    on_progress(100.0)
+                return output_path
+            tmp_abs.unlink(missing_ok=True)
+            last_error = "\n".join(tail[-8:]) or f"ffmpeg exited with {process.returncode}"
             with _ENCODER_LOCK:
                 _ENCODER_STATUS[name] = False
             if on_log:
-                on_log(f"{name} timed out, trying fallback")
-            continue
-        if process.returncode == 0 and out_abs.exists() and out_abs.stat().st_size > 1000:
-            with _ENCODER_LOCK:
-                _ENCODER_STATUS[name] = True
-            if on_progress:
-                on_progress(100.0)
-            return output_path
-        last_error = "\n".join(tail[-8:]) or f"ffmpeg exited with {process.returncode}"
-        with _ENCODER_LOCK:
-            _ENCODER_STATUS[name] = False
-        if on_log:
-            on_log(f"{name} failed, trying fallback")
-    raise RuntimeError(f"ffmpeg failed: {last_error}")
+                on_log(f"{name} failed, trying fallback")
+        raise RuntimeError(f"ffmpeg failed: {last_error}")
+    finally:
+        tmp_abs.unlink(missing_ok=True)
 
 
 def probe_size(path: Path, ffmpeg: str) -> tuple[int, int] | None:

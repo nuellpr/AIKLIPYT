@@ -39,6 +39,17 @@ class ExtractTests(unittest.TestCase):
         items = extract_clips(text)
         self.assertEqual(len(items), 1)
 
+    def test_truncated_wrapper_object_is_salvaged(self):
+        text = '{"clips":[{"start_time":1,"end_time":30,"title":"one"},{"start_time":40,"end_time":70,"title":"two"},{"start_time":'
+        items = extract_clips(text)
+        self.assertEqual([item["title"] for item in items], ["one", "two"])
+
+    def test_prose_with_brackets_and_fences(self):
+        prose_obj = 'Here are [5] clips:\n{"clips":[{"start_time":10,"end_time":45,"title":"ok"}]}'
+        self.assertEqual([item["title"] for item in extract_clips(prose_obj)], ["ok"])
+        fenced = 'Sure, here is the JSON:\n```json\n{"clips":[{"start_time":10,"end_time":45,"title":"fenced"}]}\n```'
+        self.assertEqual([item["title"] for item in extract_clips(fenced)], ["fenced"])
+
 
 class ClipTests(unittest.TestCase):
     def test_coerce_clamps_and_parses(self):
@@ -272,6 +283,10 @@ class TranslateTests(unittest.TestCase):
     def test_translate_groups_rejects_non_array(self):
         with self.assertRaises(AIError):
             self._translate(["a"], '{"wrong":"shape"}')
+
+    def test_translate_groups_extracts_array_from_prose(self):
+        out, _ = self._translate(["Hello", "World"], 'Translation:\n["Halo","Dunia"]')
+        self.assertEqual(out, ["Halo", "Dunia"])
 
 
 class ExactCountPromptTests(unittest.TestCase):

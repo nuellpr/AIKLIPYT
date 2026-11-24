@@ -22,12 +22,12 @@ from core import models as model_catalog
 from core import pipeline, session as session_store
 from core.assets import deno_path, ffmpeg_path
 from core.config import DATA, DEFAULTS, ROOT, ensure_dirs, load, save
-from core.render import CAPTION_FONTS, CAPTION_STYLES, HOOK_STYLES
+from core.render import BACKGROUND_MODES, CAPTION_FONTS, CAPTION_STYLES, FACECAM_CORNERS, HOOK_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.5"
-BACKGROUNDS = {"black", "blurred"}
+VERSION = "1.0.6"
+BACKGROUNDS = set(BACKGROUND_MODES)
 POSITIONS = {
     "top-left",
     "top-center",
@@ -62,9 +62,11 @@ def _normalize_hook_style(config: dict) -> None:
 def _public_config() -> dict:
     config = load()
     key = api_key(config)
+    raw_enc = str(config["ai"].get("apiKeyEnc") or "")
     config["ai"].pop("apiKeyEnc", None)
     config["ai"].pop("apiKey", None)
     config["ai"]["hasKey"] = bool(key)
+    config["ai"]["keyUnreadable"] = bool(raw_enc.startswith("dpapi:") and not key)
     return config
 
 
@@ -77,6 +79,7 @@ def _state() -> dict:
             "ffmpeg": ffmpeg_path(),
             "deno": deno_path(),
         },
+        "activeJob": pipeline.active_job(),
     }
 
 
@@ -140,14 +143,16 @@ def _model_auth(body: dict, config: dict) -> tuple[str, str]:
     return base, api_key(config) or ""
 
 
-def _cleanup_old_watermark(old_path: str, new_path: str) -> None:
-    if not old_path or old_path == new_path:
-        return
+def _cleanup_old_watermark(_old_path: str, new_path: str) -> None:
     try:
-        old = Path(old_path).resolve()
-        if old.parent == WATERMARKS.resolve() and old.is_file():
-            old.unlink(missing_ok=True)
-    except OSError:
+        root = WATERMARKS.resolve()
+        if not root.is_dir():
+            return
+        keep = Path(new_path).resolve() if new_path else None
+        for entry in root.iterdir():
+            if entry.is_file() and entry.resolve() != keep:
+                entry.unlink(missing_ok=True)
+    except (OSError, ValueError):
         pass
 
 
@@ -157,18 +162,25 @@ def _apply_settings(body: dict) -> dict:
     ai = body.get("ai")
     if isinstance(ai, dict):
         ai = dict(ai)
+        old_base = str(config["ai"].get("baseUrl") or "").strip().rstrip("/")
+        key_supplied = False
         if "apiKey" in ai:
             key = ai.pop("apiKey")
             if isinstance(key, str) and key:
                 config["ai"]["apiKeyEnc"] = protect(key)
+                key_supplied = True
             elif key == "":
                 config["ai"]["apiKeyEnc"] = ""
+                key_supplied = True
         for field in ("baseUrl", "model"):
             if isinstance(ai.get(field), str):
                 cleaned = ai[field].strip()
                 if field == "baseUrl" and cleaned and not cleaned.startswith(("http://", "https://")):
                     raise ValueError("Base URL harus diawali http:// atau https://")
                 config["ai"][field] = cleaned
+        new_base = str(config["ai"].get("baseUrl") or "").strip().rstrip("/")
+        if new_base != old_base and not key_supplied:
+            config["ai"]["apiKeyEnc"] = ""
     for section in ("clip", "render", "paths"):
         values = body.get(section)
         allowed = DEFAULTS[section]
@@ -184,7 +196,7 @@ def _apply_settings(body: dict) -> dict:
                     if not math.isfinite(number):
                         continue
                     config[section][key] = number
-                elif key in ("portrait", "captions", "hook", "captionBold"):
+                elif key in ("portrait", "captions", "hook", "captionBold", "captionUppercase"):
                     config[section][key] = bool(value)
                 elif isinstance(value, str):
                     config[section][key] = value.strip()
@@ -196,6 +208,8 @@ def _apply_settings(body: dict) -> dict:
     config["render"]["hookSeconds"] = max(0.5, min(10.0, config["render"]["hookSeconds"]))
     if config["render"].get("background") not in BACKGROUNDS:
         config["render"]["background"] = "black"
+    if config["render"].get("facecamCorner") not in FACECAM_CORNERS:
+        config["render"]["facecamCorner"] = "top-right"
     color = str(config["render"].get("captionColor") or "").strip()
     config["render"]["captionColor"] = color if re.fullmatch(r"#[0-9A-Fa-f]{6}", color) else "#FFD700"
     _normalize_caption_style(config)
@@ -244,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'self'; img-src 'self' https://i.ytimg.com data: blob:; "
+                "default-src 'self'; img-src 'self' https://*.ytimg.com data: blob:; "
                 "media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
                 "connect-src 'self'; frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'",
@@ -336,59 +350,65 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if not self._check_origin():
             return
-        path = unquote(urlsplit(self.path).path)
-        if path == "/api/state":
-            self._json(200, {"ok": True, **_state()})
-            return
-        if path == "/api/sessions":
-            self._json(200, {"ok": True, "sessions": session_store.list_all()})
-            return
-        if path.startswith("/api/sessions/"):
-            try:
-                data = session_store.load(path.rsplit("/", 1)[-1])
-                self._json(200, {"ok": True, "session": data})
-            except (FileNotFoundError, ValueError) as exc:
-                self._error(404, str(exc))
-            return
-        if path.startswith("/api/jobs/"):
-            try:
-                self._json(200, {"ok": True, "job": pipeline.get(path.rsplit("/", 1)[-1])})
-            except KeyError as exc:
-                self._error(404, str(exc))
-            return
-        if path == "/api/watermark":
-            source = Path(load()["render"].get("watermark") or "")
-            if not source.is_file() or source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
-                self._error(404, "Watermark belum ada")
+        try:
+            path = unquote(urlsplit(self.path).path)
+            if path == "/api/state":
+                self._json(200, {"ok": True, **_state()})
                 return
-            self._serve_file(source, mimetypes.guess_type(source.name)[0] or "application/octet-stream")
-            return
-        if path.startswith("/api/media/"):
-            parts = path.split("/")
-            if len(parts) != 5:
-                self._error(404, "Not found")
+            if path == "/api/sessions":
+                self._json(200, {"ok": True, "sessions": session_store.list_all()})
                 return
-            session_id, name = parts[3], parts[4]
-            if not re.match(r"^clip_\d{2}\.mp4$", name):
-                self._error(404, "Not found")
+            if path.startswith("/api/sessions/"):
+                try:
+                    data = session_store.load(path.rsplit("/", 1)[-1])
+                    self._json(200, {"ok": True, "session": data})
+                except (FileNotFoundError, ValueError) as exc:
+                    self._error(404, str(exc))
                 return
-            try:
-                self._serve_file(session_store.output_dir(session_id) / name, "video/mp4")
-            except ValueError:
-                self._error(400, "Invalid session id")
-            return
+            if path.startswith("/api/jobs/"):
+                try:
+                    self._json(200, {"ok": True, "job": pipeline.get(path.rsplit("/", 1)[-1])})
+                except KeyError as exc:
+                    self._error(404, str(exc))
+                return
+            if path == "/api/watermark":
+                source = Path(load()["render"].get("watermark") or "")
+                if not source.is_file() or source.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    self._error(404, "Watermark belum ada")
+                    return
+                self._serve_file(source, mimetypes.guess_type(source.name)[0] or "application/octet-stream")
+                return
+            if path.startswith("/api/media/"):
+                parts = path.split("/")
+                if len(parts) != 5:
+                    self._error(404, "Not found")
+                    return
+                session_id, name = parts[3], parts[4]
+                if not re.match(r"^clip_\d{2}\.mp4$", name):
+                    self._error(404, "Not found")
+                    return
+                try:
+                    self._serve_file(session_store.output_dir(session_id) / name, "video/mp4")
+                except ValueError:
+                    self._error(400, "Invalid session id")
+                return
 
-        relative = path.lstrip("/") or "index.html"
-        candidate = _static_path(relative)
-        if candidate is None:
-            self._error(404, "Not found")
-            return
-        if candidate.is_dir():
-            candidate = candidate / "index.html"
-        if not candidate.is_file():
-            self._error(404, "Not found")
-            return
-        self._serve_file(candidate)
+            relative = path.lstrip("/") or "index.html"
+            candidate = _static_path(relative)
+            if candidate is None:
+                self._error(404, "Not found")
+                return
+            if candidate.is_dir():
+                candidate = candidate / "index.html"
+            if not candidate.is_file():
+                self._error(404, "Not found")
+                return
+            self._serve_file(candidate)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            print(f"Server error: {exc}", file=sys.stderr)
+            self._error(500, "Terjadi kesalahan internal.")
 
     def do_POST(self):  # noqa: N802
         if not self._check_origin():
@@ -523,7 +543,11 @@ class Handler(BaseHTTPRequestHandler):
                 if pipeline.is_session_busy(session_id):
                     self._error(409, "Sesi ini sedang dirender. Tunggu render selesai sebelum menghapus.")
                     return
-                session_store.delete(session_id)
+                try:
+                    session_store.delete(session_id)
+                except PermissionError:
+                    self._error(409, "File klip sedang dipakai aplikasi lain. Tutup pemutar video lalu coba lagi.")
+                    return
                 self._json(200, {"ok": True})
                 return
             self._error(404, "Not found")

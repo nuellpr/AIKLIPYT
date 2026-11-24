@@ -31,6 +31,7 @@ GOOGLE_AUTH_COOKIES = {
 }
 AUTH_COOKIES = frozenset({"SID", "__Secure-1PSID", "__Secure-3PSID", "LOGIN_INFO"})
 HEADER = "# Netscape HTTP Cookie File"
+_HTTPONLY = "#HttpOnly_"
 
 
 def filter_cookies(text: str) -> tuple[str, dict]:
@@ -40,13 +41,14 @@ def filter_cookies(text: str) -> tuple[str, dict]:
         line = raw.rstrip("\r")
         if not line.strip():
             continue
-        if line.startswith("#"):
+        if line.startswith("#") and not line.startswith(_HTTPONLY):
             continue
         parts = line.split("\t")
         if len(parts) < 7:
             skipped += 1
             continue
-        domain = parts[0].lstrip(".").lower()
+        raw_domain = parts[0][len(_HTTPONLY):] if parts[0].startswith(_HTTPONLY) else parts[0]
+        domain = raw_domain.lstrip(".").lower()
         name = parts[5]
         if any(domain == suffix or domain.endswith("." + suffix) for suffix in YOUTUBE_DOMAINS):
             kept.append("\t".join(parts))
@@ -89,7 +91,11 @@ def status(path: Path) -> dict:
     if not path.is_file():
         return {"saved": False, "count": 0, "hasAuth": False, "updatedAt": 0}
     try:
-        lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line and not line.startswith("#")]
+        lines = [
+            line
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+            if line and (not line.startswith("#") or line.startswith(_HTTPONLY))
+        ]
     except OSError:
         lines = []
     has_auth = any(

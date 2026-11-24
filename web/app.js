@@ -29,6 +29,7 @@ const BASE_URLS = {
 };
 
 let watermarkPreview = "";
+let watermarkRev = 0;
 
 const state = {
   config: null,
@@ -42,6 +43,7 @@ const state = {
   busyJob: false,
   detail: null,
   toastTimer: null,
+  autoOpenSessionId: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -212,9 +214,12 @@ function applySettings() {
   syncBaseUrlPreset();
   ensureModelOption(config.ai?.model || "");
   $("apiKey").value = "";
-  $("apiKey").placeholder = config.ai?.hasKey
-    ? "Tersimpan aman — isi hanya untuk mengganti"
-    : "Belum ada key — tempel API key di sini";
+  $("apiKey").placeholder = config.ai?.keyUnreadable
+    ? "Key lama tidak bisa dibaca di PC/user ini — masukkan ulang"
+    : config.ai?.hasKey
+      ? "Tersimpan aman — isi hanya untuk mengganti"
+      : "Belum ada key — tempel API key di sini";
+  if ($("clearApiKey")) $("clearApiKey").disabled = !config.ai?.hasKey;
   $("settingsOutputLanguage").value = config.outputLanguage || "auto";
   $("outputLanguage").value = config.outputLanguage || "auto";
   $("minSeconds").value = config.clip?.minSeconds ?? 20;
@@ -222,6 +227,7 @@ function applySettings() {
   $("padding").value = config.clip?.padding ?? 0.25;
   $("portrait").checked = config.render?.portrait !== false;
   $("background").value = config.render?.background || "black";
+  $("facecamCorner").value = config.render?.facecamCorner || "top-right";
   $("captions").checked = config.render?.captions !== false;
   $("captionColor").value = /^#[0-9a-f]{6}$/i.test(config.render?.captionColor || "")
     ? config.render.captionColor
@@ -229,6 +235,7 @@ function applySettings() {
   $("captionStyle").value = config.render?.captionStyle || "highlight";
   $("captionFont").value = config.render?.captionFont || "Arial Black";
   $("captionBold").checked = config.render?.captionBold !== false;
+  $("captionUppercase").checked = Boolean(config.render?.captionUppercase);
   $("hook").checked = config.render?.hook !== false;
   $("hookSeconds").value = config.render?.hookSeconds ?? 3;
   $("hookStyle").value = config.render?.hookStyle || "classic";
@@ -240,6 +247,7 @@ function applySettings() {
   setGridValue("watermarkPosition", config.render?.watermarkPosition || "top-right");
   setGridValue("creditPosition", config.render?.creditPosition || "bottom-center");
   watermarkPreview = "";
+  watermarkRev += 1;
   updateBrandPreview();
   $("ffmpegPath").value = config.paths?.ffmpeg || "";
   $("denoPath").value = config.paths?.deno || "";
@@ -274,6 +282,7 @@ function updateLivePreview(overrideThumb) {
   const render = state.config?.render || {};
   const portrait = render.portrait !== false;
   const background = render.background || "black";
+  const facecamCorner = render.facecamCorner || "top-right";
   const showCaptions = render.captions !== false;
   const showHook = render.hook !== false;
   const accent = /^#[0-9a-f]{6}$/i.test(render.captionColor || "") ? render.captionColor : "#FFD700";
@@ -281,15 +290,27 @@ function updateLivePreview(overrideThumb) {
   const hookStyle = render.hookStyle || "classic";
   const font = render.captionFont || "Arial Black";
   const bold = render.captionBold !== false;
+  const upper = Boolean(render.captionUppercase);
+  const isStacked = portrait && (background === "split" || background === "facecam-top");
 
   const videoId = extractYoutubeId($("url")?.value);
   const thumbUrl = overrideThumb || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : "");
   const thumb = $("previewThumb");
+  const thumbTop = $("previewThumbTop");
   const bg = $("previewBg");
   if (thumbUrl) {
     if (thumb.getAttribute("src") !== thumbUrl) thumb.src = thumbUrl;
     thumb.classList.remove("hidden");
     phone.classList.add("has-thumb");
+    if (thumbTop) {
+      if (isStacked) {
+        if (thumbTop.getAttribute("src") !== thumbUrl) thumbTop.src = thumbUrl;
+        thumbTop.classList.remove("hidden");
+      } else {
+        thumbTop.removeAttribute("src");
+        thumbTop.classList.add("hidden");
+      }
+    }
     if (portrait && background === "blurred") {
       if (bg.getAttribute("src") !== thumbUrl) bg.src = thumbUrl;
       bg.classList.remove("hidden");
@@ -299,18 +320,28 @@ function updateLivePreview(overrideThumb) {
   } else {
     thumb.removeAttribute("src");
     thumb.classList.add("hidden");
+    if (thumbTop) {
+      thumbTop.removeAttribute("src");
+      thumbTop.classList.add("hidden");
+    }
     bg.removeAttribute("src");
     bg.classList.add("hidden");
     phone.classList.remove("has-thumb");
   }
 
   phone.classList.toggle("is-landscape", !portrait);
+  phone.dataset.mode = portrait ? background : "landscape";
+  phone.dataset.facecam = facecamCorner;
+  phone.classList.toggle("has-retro-hook", showHook && hookStyle === "retro-card");
   phone.style.setProperty("--preview-accent", accent);
   phone.style.setProperty("--preview-font", style === "gadzhi" && font === "Arial Black" ? "Arial" : font);
   phone.style.setProperty("--preview-weight", style === "gadzhi" ? "400" : bold ? "800" : "400");
+  phone.style.setProperty("--preview-transform", upper ? "uppercase" : "none");
 
   $("previewRatio").textContent = portrait ? "9:16" : "16:9";
   $("previewFormat").textContent = portrait ? "● 9:16" : "● 16:9";
+  if ($("statFormat")) $("statFormat").textContent = portrait ? "9:16" : "16:9";
+  if ($("brandPreviewFrame")) $("brandPreviewFrame").textContent = portrait ? "PREVIEW 9:16" : "PREVIEW 16:9";
   $("previewStyleTag").textContent = style;
   const hookNode = $("previewHook");
   hookNode.className = `phone-hook hook-${hookStyle}${showHook ? "" : " hidden"}`;
@@ -320,9 +351,10 @@ function updateLivePreview(overrideThumb) {
   const note = $("previewCaptionNote");
   if (note) {
     const dims = portrait ? "1080 × 1920" : "1920 × 1080";
-    const bgLabel = portrait ? (background === "blurred" ? "latar blur" : "latar hitam") : "layar penuh";
+    const bgLabel = portrait ? (BG_LABELS[background] || "latar hitam") : "layar penuh";
+    const caseLabel = upper && bold ? " KAPITAL tebal" : upper ? " KAPITAL" : bold ? " tebal" : "";
     note.textContent = thumbUrl
-      ? `Preview ${dims} (${bgLabel}) · gaya ${style} · font ${font}${bold ? " tebal" : ""}.`
+      ? `Preview ${dims} (${bgLabel}) · gaya ${style} · font ${font}${caseLabel}.`
       : "Tempel URL YouTube untuk melihat preview thumbnail, hook, dan gaya subtitle dari Pengaturan.";
   }
 }
@@ -352,6 +384,7 @@ async function loadState() {
   applyVersion(data.version);
   applySettings();
   updateCookieStatus();
+  if (data.activeJob) resumeActiveJob(data.activeJob);
 }
 
 function route() {
@@ -434,6 +467,68 @@ function pollJob(jobId, onDone, onFail) {
   tick();
 }
 
+function applyHighlightResult(job, fallbackRequested = 0) {
+  state.busyJob = false;
+  setBusy($("findBtn"), false);
+  state.sessionId = job.result.sessionId;
+  state.highlights = job.result.highlights || [];
+  const recommended = state.highlights
+    .map((clip, index) => ({ clip, index }))
+    .filter(({ clip }) => scoreOf(clip) >= 7)
+    .map(({ index }) => index);
+  state.selected = new Set(
+    recommended.length ? recommended : state.highlights.map((_, index) => index),
+  );
+  renderHighlights();
+  $("resultsPanel").classList.remove("hidden");
+  $("resultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+  const wanted = Number(job.result?.requested) || fallbackRequested || state.highlights.length;
+  const short = state.highlights.length < wanted;
+  toast(
+    short
+      ? `AI hanya menemukan ${state.highlights.length} dari ${wanted} momen`
+      : `${state.highlights.length} highlight — ${state.selected.size} direkomendasikan untuk dirender`,
+    short,
+  );
+}
+
+function finishRender(job) {
+  const errors = job.result?.errors || [];
+  toast(errors.length ? `Selesai dengan ${errors.length} error` : "Klip selesai dirender", errors.length > 0);
+  state.busyJob = false;
+  setBusy($("renderBtn"), false);
+  state.selected = new Set();
+  if (state.highlights.length) renderHighlights();
+  const sid = job.result?.sessionId;
+  state.autoOpenSessionId = sid || null;
+  if (location.hash === "#library") {
+    loadSessions().catch((error) => toast(error.message, true));
+  } else {
+    location.hash = "#library";
+  }
+}
+
+function resumeActiveJob(job) {
+  if (!job || state.busyJob) return;
+  state.busyJob = true;
+  const isRender = job.kind === "render";
+  showJob(isRender ? "Merender klip" : "Mencari highlight");
+  updateJob(job);
+  if (isRender) {
+    setBusy($("renderBtn"), true, "Merender…");
+    pollJob(job.id, finishRender, () => {
+      state.busyJob = false;
+      setBusy($("renderBtn"), false);
+    });
+  } else {
+    setBusy($("findBtn"), true, "Mencari…");
+    pollJob(job.id, (doneJob) => applyHighlightResult(doneJob), () => {
+      state.busyJob = false;
+      setBusy($("findBtn"), false);
+    });
+  }
+}
+
 async function findHighlights() {
   if (state.busyJob) {
     toast("Ada proses yang masih berjalan.", true);
@@ -462,30 +557,7 @@ async function findHighlights() {
       outputLanguage: $("outputLanguage").value,
       direction: $("direction").value.trim(),
     });
-    pollJob(jobId, (job) => {
-      state.busyJob = false;
-      setBusy(button, false);
-      state.sessionId = job.result.sessionId;
-      state.highlights = job.result.highlights || [];
-      const recommended = state.highlights
-        .map((clip, index) => ({ clip, index }))
-        .filter(({ clip }) => scoreOf(clip) >= 7)
-        .map(({ index }) => index);
-      state.selected = new Set(
-        recommended.length ? recommended : state.highlights.map((_, index) => index),
-      );
-      renderHighlights();
-      $("resultsPanel").classList.remove("hidden");
-      $("resultsPanel").scrollIntoView({ behavior: "smooth", block: "start" });
-      const wanted = Number(job.result?.requested) || requested;
-      const short = state.highlights.length < wanted;
-      toast(
-        short
-          ? `AI hanya menemukan ${state.highlights.length} dari ${wanted} momen`
-          : `${state.highlights.length} highlight — ${state.selected.size} direkomendasikan untuk dirender`,
-        short,
-      );
-    }, () => {
+    pollJob(jobId, (job) => applyHighlightResult(job, requested), () => {
       state.busyJob = false;
       setBusy(button, false);
     });
@@ -586,15 +658,7 @@ async function renderSelected() {
       indices: [...state.selected].sort((a, b) => a - b),
       overwrite: true,
     });
-    pollJob(jobId, (job) => {
-      const errors = job.result?.errors || [];
-      toast(errors.length ? `Selesai dengan ${errors.length} error` : "Klip selesai dirender", errors.length > 0);
-      state.busyJob = false;
-      setBusy(button, false);
-      state.selected = new Set();
-      renderHighlights();
-      location.hash = "#library";
-    }, () => {
+    pollJob(jobId, finishRender, () => {
       state.busyJob = false;
       setBusy(button, false);
     });
@@ -609,6 +673,11 @@ async function loadSessions() {
   const { sessions } = await api("/api/sessions");
   state.sessions = sessions;
   renderLibrary();
+  const pendingId = state.autoOpenSessionId;
+  if (pendingId) {
+    state.autoOpenSessionId = null;
+    await openSession(pendingId);
+  }
 }
 
 function renderLibrary() {
@@ -710,6 +779,7 @@ async function saveSettings() {
     $("modelCustom").focus();
     return;
   }
+  const hadKey = Boolean(state.config?.ai?.hasKey);
   setBusy(button, true, "Menyimpan…");
   try {
     const payload = {
@@ -726,11 +796,13 @@ async function saveSettings() {
       render: {
         portrait: $("portrait").checked,
         background: $("background").value,
+        facecamCorner: $("facecamCorner").value,
         captions: $("captions").checked,
         captionColor: $("captionColor").value,
         captionStyle: $("captionStyle").value,
         captionFont: $("captionFont").value,
         captionBold: $("captionBold").checked,
+        captionUppercase: $("captionUppercase").checked,
         hook: $("hook").checked,
         hookSeconds: Number($("hookSeconds").value),
         hookStyle: $("hookStyle").value,
@@ -754,7 +826,11 @@ async function saveSettings() {
     state.assets = data.assets;
     applySettings();
     updateCookieStatus();
-    toast("Pengaturan disimpan");
+    toast(
+      hadKey && !key && !data.config?.ai?.hasKey
+        ? "Pengaturan disimpan — isi API key baru untuk Base URL ini"
+        : "Pengaturan disimpan",
+    );
   } catch (error) {
     toast(error.message, true);
   } finally {
@@ -798,6 +874,7 @@ function bindEvents() {
   $("url").addEventListener("input", () => updateLivePreview());
   $("previewThumb").addEventListener("error", () => {
     $("previewThumb").classList.add("hidden");
+    $("previewThumbTop")?.classList.add("hidden");
     $("previewBg").classList.add("hidden");
     $("previewPhone").classList.remove("has-thumb");
   });
@@ -922,6 +999,17 @@ function bindEvents() {
   });
 
   $("saveSettings").addEventListener("click", saveSettings);
+  $("clearApiKey")?.addEventListener("click", async () => {
+    if (!confirm("Hapus API key tersimpan?")) return;
+    try {
+      const data = await api("/api/settings", "POST", { ai: { apiKey: "" } });
+      state.config = data.config;
+      applySettings();
+      toast("API key dihapus");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
   $("refreshModels").addEventListener("click", refreshModels);
   $("model").addEventListener("change", toggleCustomModel);
   $("baseUrl").addEventListener("input", syncBaseUrlPreset);
@@ -980,9 +1068,10 @@ function previewPos(element, position) {
 function updateBrandPreview() {
   if (!$("previewWatermark")) return;
   const path = $("watermark").value.trim();
+  const saved = state.config?.render?.watermark || "";
+  const src = watermarkPreview || (path && path === saved ? `/api/watermark?v=${watermarkRev}` : "");
   const image = $("previewWatermark");
-  if (path) {
-    const src = watermarkPreview || "/api/watermark";
+  if (path && src) {
     if (image.getAttribute("src") !== src) image.src = src;
     image.classList.remove("hidden");
   } else {
@@ -1081,6 +1170,28 @@ const CAPTION_CARDS = [
   ["gadzhi", "Gadzhi", ""],
 ];
 
+const BG_LABELS = {
+  black: "latar hitam",
+  blurred: "latar blur",
+  fill: "layar penuh",
+  split: "split podcast",
+  "crop-left": "crop kiri",
+  "crop-right": "crop kanan",
+  "facecam-top": "facecam atas",
+  cinema: "zoom 4:5",
+};
+
+const BACKGROUND_CARDS = [
+  ["black", "Hitam", "", "Video 16:9 + bar hitam"],
+  ["blurred", "Blur", "", "Video 16:9 + latar blur"],
+  ["fill", "Layar Penuh", "", "Auto fokus wajah 9:16"],
+  ["split", "Split Podcast", "Baru", "Atas kiri · bawah kanan"],
+  ["crop-left", "Crop Kiri", "Baru", "Fokus sisi kiri 9:16"],
+  ["crop-right", "Crop Kanan", "Baru", "Fokus sisi kanan 9:16"],
+  ["facecam-top", "Gaming / Reaction", "Baru", "Facecam atas · layar bawah"],
+  ["cinema", "Zoom 4:5", "Baru", "4:5 tengah + ruang hook"],
+];
+
 const HOOK_CARDS = [
   ["classic", "Klasik", "Default"],
   ["card", "Kartu", "Populer"],
@@ -1092,6 +1203,7 @@ const HOOK_CARDS = [
   ["impact", "Impact Slam", "Populer"],
   ["tape", "Stiker Miring", "Baru"],
   ["spotlight", "Sorot", "Baru"],
+  ["retro-card", "Kartu Retro", "Baru"],
 ];
 
 function captionSampleHtml(style) {
@@ -1117,19 +1229,69 @@ function hookSampleHtml(style) {
   if (style === "impact") return `<div class="sc-hook hk-impact">NOLAK<br>1 MILIAR!</div>`;
   if (style === "tape") return `<div class="sc-hook hk-tape">Ternyata dia<br>nolak 1 miliar</div>`;
   if (style === "spotlight") return `<div class="sc-hook hk-spotlight"><em>1 MILIAR</em><br>DITOLAK MENTAH</div>`;
+  if (style === "retro-card") return `<div class="sc-hook hk-retro-card">inilah satu-satunya<br>kelebihan dia</div>`;
   return `<div class="sc-hook hk-classic">Ternyata dia<br>nolak 1 miliar</div>`;
+}
+
+function captionCaseMode() {
+  const bold = Boolean($("captionBold")?.checked);
+  const upper = Boolean($("captionUppercase")?.checked);
+  if (upper && bold) return "upper-bold";
+  if (upper) return "upper";
+  if (bold) return "bold";
+  return "normal";
+}
+
+function setCaptionCaseMode(mode) {
+  if ($("captionBold")) $("captionBold").checked = mode === "bold" || mode === "upper-bold";
+  if ($("captionUppercase")) $("captionUppercase").checked = mode === "upper" || mode === "upper-bold";
 }
 
 function syncStylePickers() {
   const accent = /^#[0-9a-f]{6}$/i.test($("captionColor")?.value || "") ? $("captionColor").value : "#FFD700";
   const font = $("captionFont")?.value || "Arial Black";
-  const weight = $("captionBold")?.checked ? "800" : "400";
+  const bold = Boolean($("captionBold")?.checked);
+  const upper = Boolean($("captionUppercase")?.checked);
+  const weight = bold ? "800" : "400";
+
+  const bgPicker = $("backgroundPicker");
+  if (bgPicker) {
+    bgPicker.classList.toggle("is-off", !$("portrait")?.checked);
+    const activeBg = $("background")?.value || "black";
+    for (const card of bgPicker.querySelectorAll(".mode-card")) {
+      const selected = card.dataset.value === activeBg;
+      card.classList.toggle("is-selected", selected);
+      card.setAttribute("aria-checked", String(selected));
+    }
+    const facecamRow = $("facecamCornerRow");
+    if (facecamRow) {
+      facecamRow.classList.toggle("hidden", activeBg !== "facecam-top");
+      const activeCorner = $("facecamCorner")?.value || "top-right";
+      for (const btn of facecamRow.querySelectorAll(".seg-btn")) {
+        const selected = btn.dataset.corner === activeCorner;
+        btn.classList.toggle("is-selected", selected);
+        btn.setAttribute("aria-checked", String(selected));
+      }
+    }
+  }
+
+  const caseGroup = $("captionCaseGroup");
+  if (caseGroup) {
+    const activeMode = captionCaseMode();
+    for (const btn of caseGroup.querySelectorAll(".seg-btn")) {
+      const selected = btn.dataset.mode === activeMode;
+      btn.classList.toggle("is-selected", selected);
+      btn.setAttribute("aria-checked", String(selected));
+    }
+  }
+
   const subPicker = $("subtitlePicker");
   const hookPicker = $("hookPicker");
   if (subPicker) {
     subPicker.style.setProperty("--picker-accent", accent);
     subPicker.style.setProperty("--picker-font", font);
     subPicker.style.setProperty("--picker-weight", weight);
+    subPicker.style.setProperty("--picker-transform", upper ? "uppercase" : "none");
     subPicker.classList.toggle("is-off", !$("captions").checked);
     const active = $("captionStyle").value || "highlight";
     const strip = $("captionStyleStrip");
@@ -1158,6 +1320,42 @@ function syncStylePickers() {
 }
 
 function buildStylePickers() {
+  const bgStrip = $("backgroundStrip");
+  if (bgStrip) {
+    bgStrip.innerHTML = BACKGROUND_CARDS.map(([value, label, badge, desc]) => `
+      <button type="button" class="mode-card" role="radio" aria-checked="false" data-value="${value}">
+        <span class="mode-card-top">
+          <strong>${label}</strong>
+          ${badge ? `<span class="style-card-badge">${badge}</span>` : ""}
+        </span>
+        <span class="mode-stage"><span class="mode-mini-phone mode-${value}"></span></span>
+        <span class="mode-desc">${desc}</span>
+      </button>`).join("");
+    bgStrip.addEventListener("click", (event) => {
+      const card = event.target.closest(".mode-card");
+      if (!card) return;
+      $("background").value = card.dataset.value;
+      syncStylePickers();
+    });
+  }
+  const facecamGroup = $("facecamCornerGroup");
+  if (facecamGroup) {
+    facecamGroup.addEventListener("click", (event) => {
+      const btn = event.target.closest(".seg-btn");
+      if (!btn) return;
+      $("facecamCorner").value = btn.dataset.corner;
+      syncStylePickers();
+    });
+  }
+  const caseGroup = $("captionCaseGroup");
+  if (caseGroup) {
+    caseGroup.addEventListener("click", (event) => {
+      const btn = event.target.closest(".seg-btn");
+      if (!btn) return;
+      setCaptionCaseMode(btn.dataset.mode);
+      syncStylePickers();
+    });
+  }
   const subStrip = $("captionStyleStrip");
   if (subStrip) {
     subStrip.innerHTML = CAPTION_CARDS.map(([value, label, badge]) => `
@@ -1194,7 +1392,7 @@ function buildStylePickers() {
   });
   $("toggleCaptionTuning")?.addEventListener("click", () => $("captionTuning").classList.toggle("hidden"));
   $("toggleHookTuning")?.addEventListener("click", () => $("hookTuning").classList.toggle("hidden"));
-  for (const id of ["captions", "hook", "captionColor", "captionFont", "captionBold"]) {
+  for (const id of ["portrait", "captions", "hook", "captionColor", "captionFont", "captionBold", "captionUppercase"]) {
     $(id)?.addEventListener("input", syncStylePickers);
     $(id)?.addEventListener("change", syncStylePickers);
   }

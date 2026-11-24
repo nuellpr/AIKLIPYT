@@ -7,11 +7,12 @@ word times there are approximated by character length.
 from __future__ import annotations
 
 import html
+import math
 import re
 from dataclasses import dataclass
 
 _TS = re.compile(
-    r"^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?$"
+    r"^(?:(\d+):)?(\d+):(\d{2})(?:[.,](\d+))?$"
 )
 _INLINE_TS = re.compile(r"<((?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{3})>")
 
@@ -35,8 +36,11 @@ class Word:
 
 def parse_timestamp(value) -> float | None:
     """Accept 62.5, "1:02", "01:02:03,500" or "0:12.250"."""
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return max(0.0, float(value))
+        number = float(value)
+        return max(0.0, number) if math.isfinite(number) else None
     if not isinstance(value, str):
         return None
     text = value.strip()
@@ -45,7 +49,8 @@ def parse_timestamp(value) -> float | None:
     match = _TS.match(text)
     if not match:
         try:
-            return max(0.0, float(text))
+            number = float(text)
+            return max(0.0, number) if math.isfinite(number) else None
         except ValueError:
             return None
     hours = int(match.group(1) or 0)
@@ -151,18 +156,19 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
 def parse_json3(data: dict) -> list[Word]:
     words: list[Word] = []
     for event in data.get("events", []) or []:
-        segs = event.get("segs") or []
-        if not segs:
+        raw_segs = event.get("segs") or []
+        if not raw_segs:
             continue
         base = float(event.get("tStartMs") or 0)
         event_end = base + float(event.get("dDurationMs", 0) or 0)
-        starts = [base + float(seg.get("tOffsetMs", 0) or 0) for seg in segs]
-        for position, seg in enumerate(segs):
+        segs: list[tuple[float, str]] = []
+        for seg in raw_segs:
             text = (seg.get("utf8") or "").replace("\n", " ").strip()
-            if not text:
-                continue
-            start = starts[position] / 1000.0
-            end = (starts[position + 1] if position + 1 < len(starts) else event_end) / 1000.0
+            if text:
+                segs.append((base + float(seg.get("tOffsetMs", 0) or 0), text))
+        for position, (start_ms, text) in enumerate(segs):
+            start = start_ms / 1000.0
+            end = (segs[position + 1][0] if position + 1 < len(segs) else event_end) / 1000.0
             if end <= start:
                 end = start + 0.12
             tokens = text.split()
@@ -187,19 +193,23 @@ def normalize_words(words: list[Word]) -> list[Word]:
     cleaned.sort(key=lambda w: (w.start, w.end))
     out: list[Word] = []
     for word in cleaned:
+        start, end = word.start, word.end
         if out:
             prev = out[-1]
             if (
                 word.word == prev.word
-                and abs(word.start - prev.start) < 0.08
-                and abs(word.end - prev.end) < 0.08
+                and abs(start - prev.start) < 0.08
+                and abs(end - prev.end) < 0.08
             ):
                 continue
-            if word.start < prev.start - 0.25:
-                continue
-            if prev.end > word.start and word.start > prev.start:
-                out[-1] = Word(prev.word, prev.start, word.start)
-        out.append(word)
+            if start <= prev.start:
+                shared_end = max(prev.end, end)
+                step = max(0.02, min(0.06, (shared_end - prev.start) / 2))
+                start = round(prev.start + step, 3)
+                end = max(end, round(start + 0.04, 3))
+            if prev.end > start:
+                out[-1] = Word(prev.word, prev.start, start)
+        out.append(Word(word.word, start, end))
     return out
 
 

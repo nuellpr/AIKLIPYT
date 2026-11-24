@@ -28,6 +28,7 @@ DEFAULTS: dict[str, Any] = {
     "render": {
         "portrait": True,
         "background": "black",
+        "facecamCorner": "top-right",
         "captions": True,
         "hook": True,
         "hookSeconds": 3.0,
@@ -36,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
         "captionStyle": "highlight",
         "captionFont": "Arial Black",
         "captionBold": True,
+        "captionUppercase": False,
         "watermark": "",
         "watermarkPosition": "top-right",
         "watermarkOpacity": 0.9,

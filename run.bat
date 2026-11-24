@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-if exist ".venv\Scripts\python.exe" goto :launch
+if exist ".venv\Scripts\python.exe" goto :check_deps
 
 set "PY="
 where py >nul 2>nul && set "PY=py -3"
@@ -21,13 +21,19 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Installing dependencies...
+:check_deps
+if exist ".venv\.req-stamp" (
+  fc /b requirements.txt ".venv\.req-stamp" >nul 2>nul && goto :launch
+)
+
+echo Installing/updating dependencies...
 ".venv\Scripts\python.exe" -m pip install --quiet --no-input -r requirements.txt
 if errorlevel 1 (
   echo Failed to install requirements
   pause
   exit /b 1
 )
+copy /y requirements.txt ".venv\.req-stamp" >nul
 
 :launch
 ".venv\Scripts\python.exe" server.py %*

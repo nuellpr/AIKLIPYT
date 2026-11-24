@@ -7,7 +7,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.assets import ffmpeg_path  # noqa: E402
-from core.render import CAPTION_FONTS, CAPTION_STYLES, HOOK_STYLES, MRBEAST_COLORS, _filter_complex, ass_time, build_ass, probe_size, render_clip  # noqa: E402
+from core.render import (  # noqa: E402
+    BACKGROUND_MODES,
+    CAPTION_FONTS,
+    CAPTION_STYLES,
+    FACECAM_CORNERS,
+    HOOK_STYLES,
+    MRBEAST_COLORS,
+    _filter_complex,
+    _portrait_chain,
+    ass_time,
+    build_ass,
+    probe_size,
+    render_clip,
+)
 from core.subtitles import Word  # noqa: E402
 
 FFMPEG = ffmpeg_path()
@@ -67,6 +80,8 @@ class AssTests(unittest.TestCase):
         self.assertIn("&H0000D7FF&", smart)
         box = build_ass(words, caption_style="box-highlight")
         self.assertIn(r"\bord14", box)
+        self.assertIn(",CaptionBg,", box)
+        self.assertIn(r"{\rCaptionBg}", box)
         self.assertNotIn("halo dunia", box)
         focus = build_ass(words, caption_style="word-focus")
         self.assertIn(r"\alpha&H80&", focus)
@@ -110,13 +125,20 @@ class AssTests(unittest.TestCase):
         self.assertIn(r"\bord1", ass)
 
     def test_mrbeast_style(self):
-        words = [Word("a", 0.1, 0.4), Word("b", 0.5, 0.8), Word("c", 0.9, 1.2)]
+        words = [
+            Word(tok, i * 0.4 + 0.1, i * 0.4 + 0.35)
+            for i, tok in enumerate(("a", "b", "c", "d", "e", "f"))
+        ]
         ass = build_ass(words, caption_style="mrbeast")
-        first_line = next(row for row in ass.splitlines() if row.startswith("Dialogue:"))
+        dialogues = [row for row in ass.splitlines() if row.startswith("Dialogue:")]
+        first_line = dialogues[0]
         self.assertIn(r"\fscx120", first_line)
         self.assertLess(first_line.index(r"\bord8\3c&HFFFFFF&"), first_line.index("}A"))
         self.assertIn(r"{\bord8\3c&H000000&\shad2}B", first_line)
         self.assertIn("&H000000FF&", MRBEAST_COLORS)
+        joined = "\n".join(dialogues)
+        for color in MRBEAST_COLORS:
+            self.assertIn(color, joined)
 
     def test_adjacent_groups_never_overlap(self):
         # 5 words split into 2 groups; group 1's last word has a bloated rolling end time.
@@ -138,6 +160,57 @@ class AssTests(unittest.TestCase):
             for style_name, times in by_style.items():
                 for (_, prev_end), (next_start, _) in zip(times, times[1:]):
                     self.assertLessEqual(prev_end, next_start, f"{style}/{style_name}: {prev_end} > {next_start}")
+
+    def test_same_start_words_never_overlap_in_ass(self):
+        words = [
+            Word("pikir", 1.0, 1.2),
+            Word("sana", 1.0, 1.2),
+            Word("kan", 1.5, 1.6),
+            Word("itu", 1.5, 1.65),
+            Word("lagi", 1.7, 1.9),
+        ]
+        for style in ("highlight", "box-highlight"):
+            ass = build_ass(words, caption_style=style)
+            times = [
+                (line.split(",", 9)[1], line.split(",", 9)[2])
+                for line in ass.splitlines()
+                if line.startswith("Dialogue:")
+            ]
+            for (_, prev_end), (next_start, _) in zip(times, times[1:]):
+                self.assertLessEqual(prev_end, next_start, f"{style}: {prev_end} > {next_start}")
+
+    def test_render_clip_preserves_existing_file_on_failure(self):
+        from io import BytesIO
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            src = work / "in.mp4"
+            src.write_bytes(b"in")
+            out = work / "clip_01.mp4"
+            out.write_bytes(b"existing-good-mp4" * 100)
+
+            class BadProc:
+                returncode = 1
+
+                def __init__(self):
+                    self.stdout = BytesIO(b"")
+
+                def wait(self, timeout=None):
+                    return 1
+
+                def kill(self):
+                    pass
+
+            with (
+                mock.patch("core.render.detect_encoder", return_value=None),
+                mock.patch("core.render.subprocess.Popen", return_value=BadProc()),
+            ):
+                with self.assertRaises(RuntimeError):
+                    render_clip(src, out, [], "ffmpeg", 2.0)
+
+            self.assertEqual(out.read_bytes(), b"existing-good-mp4" * 100)
+            self.assertFalse((work / ".clip_01.tmp.mp4").exists())
 
     def test_caption_font_and_bold(self):
         words = [Word("halo", 0.2, 0.7)]
@@ -191,7 +264,7 @@ class AssTests(unittest.TestCase):
 
     def test_hook_styles(self):
         words = [Word("halo", 0.2, 0.7)]
-        self.assertEqual(len(HOOK_STYLES), 10)
+        self.assertEqual(len(HOOK_STYLES), 11)
         card = build_ass(words, hook_text="Ternyata dia", hook_style="card")
         self.assertIn(",HookBox,,", card)
         self.assertIn("Ternyata dia", card)
@@ -213,8 +286,77 @@ class AssTests(unittest.TestCase):
         self.assertIn(r"\i1", spot)
         self.assertIn("TERNYATA DIA", spot)
         self.assertIn("NOLAK SATU MILIAR", spot)
+        retro = build_ass(
+            [Word("awal", 0.2, 0.7), Word("akhir", 3.5, 4.0)],
+            hook_text="Inilah satu-satunya kelebihan dia yg luar biasa",
+            hook_style="retro-card",
+            hook_seconds=3.0,
+        )
+        self.assertIn(r"\p1", retro)
+        self.assertIn("&H0069E1FF&", retro)
+        layer3 = [r for r in retro.splitlines() if r.startswith("Dialogue: 3,")]
+        self.assertGreater(len(layer3), 3)
+        self.assertIn(",Caption,,0,0,600,,", retro)
+        self.assertIn(",Caption,,0,0,0,,", retro)
         fallback = build_ass(words, hook_text="Halo", hook_style="unknown")
         self.assertIn(",Hook,,0,0,0,,HALO", fallback)
+
+    def test_fill_portrait_chain(self):
+        chain = _portrait_chain("fill")
+        self.assertEqual(
+            chain,
+            "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=3:3:0.5:3:3:0.0",
+        )
+
+    def test_background_modes_and_portrait_chains(self):
+        self.assertEqual(len(BACKGROUND_MODES), 8)
+        self.assertEqual(len(FACECAM_CORNERS), 4)
+        for mode in BACKGROUND_MODES:
+            chain = _portrait_chain(mode)
+            self.assertTrue(chain, mode)
+        self.assertIn("(iw-ow)*0.15", _portrait_chain("crop-left"))
+        self.assertIn("(iw-ow)*0.85", _portrait_chain("crop-right"))
+        self.assertIn("vstack=inputs=2", _portrait_chain("split"))
+        self.assertIn("1080:1350", _portrait_chain("cinema"))
+        self.assertIn("color=black", _portrait_chain("unknown"))
+        fc_tl = _portrait_chain("facecam-top", "top-left")
+        fc_br = _portrait_chain("facecam-top", "bottom-right")
+        self.assertIn(":0:0,", fc_tl)
+        self.assertIn(":iw-ow:ih-oh,", fc_br)
+        self.assertIn("vstack=inputs=2", fc_tl)
+
+    def test_filter_complex_split_and_facecam_with_overlays(self):
+        for mode in ("split", "facecam-top", "cinema"):
+            graph = _filter_complex(
+                True,
+                mode,
+                True,
+                Path("logo.png"),
+                0.75,
+                "bottom-right",
+                ass_file="clip_01.ass",
+                facecam_corner="bottom-left",
+            )
+            self.assertIn(",ass=clip_01.ass[base]", graph)
+            self.assertIn("overlay=W-w-40:H-h-40[v]", graph)
+            if mode == "facecam-top":
+                self.assertIn(":0:ih-oh,", graph)
+
+    def test_caption_uppercase_and_bold_variants(self):
+        words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
+        upper_reg = build_ass(words, caption_style="highlight", caption_font="Segoe UI", caption_bold=False, caption_uppercase=True)
+        self.assertIn("Style: Caption,Segoe UI,62,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,", upper_reg)
+        self.assertIn("HALO", upper_reg)
+        self.assertIn("DUNIA", upper_reg)
+
+        upper_bold = build_ass(words, caption_style="box-highlight", caption_font="Segoe UI", caption_bold=True, caption_uppercase=True)
+        self.assertIn("Style: Caption,Segoe UI,62,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,", upper_bold)
+        self.assertIn("HALO", upper_bold)
+
+        kara = build_ass(words, caption_style="karaoke", caption_uppercase=True)
+        self.assertIn("HALO", kara)
+        bi = build_ass(words, caption_style="bilingual", translations=["hello world"], caption_uppercase=True)
+        self.assertIn("HELLO WORLD", bi)
 
     def test_time_format(self):
         self.assertEqual(ass_time(0), "0:00:00.00")
@@ -324,6 +466,79 @@ class FfmpegRenderTests(unittest.TestCase):
                 )
                 self.assertTrue(logo_out.is_file())
                 self.assertGreater(logo_out.stat().st_size, 1000)
+
+    def test_fill_retro_card_uppercase_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            source = work / "input.mp4"
+            subprocess.run(
+                [
+                    FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=2",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(source),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+            output = work / "out_fill_retro.mp4"
+            words = [Word("satu", 0.2, 0.7), Word("doang", 0.8, 1.4)]
+            render_clip(
+                source,
+                output,
+                words,
+                FFMPEG,
+                2.0,
+                hook_text="inilah satu-satunya kelebihan dia yg luar biasa",
+                hook_style="retro-card",
+                hook_seconds=1.5,
+                portrait=True,
+                background="fill",
+                caption_font="Segoe UI",
+                caption_bold=False,
+                caption_uppercase=True,
+            )
+            self.assertTrue(output.is_file())
+            self.assertGreater(output.stat().st_size, 1000)
+            self.assertEqual(probe_size(output, FFMPEG), (1080, 1920))
+
+    def test_new_framing_modes_render(self):
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            source = work / "input.mp4"
+            subprocess.run(
+                [
+                    FFMPEG, "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=1",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+                    "-c:a", "aac", "-shortest", str(source),
+                ],
+                check=True,
+                capture_output=True,
+                timeout=120,
+            )
+            logo = Path("web/assets/logo.png")
+            words = [Word("halo", 0.1, 0.5), Word("dunia", 0.5, 0.9)]
+            for mode in ("split", "crop-left", "crop-right", "facecam-top", "cinema"):
+                output = work / f"out_{mode}.mp4"
+                render_clip(
+                    source,
+                    output,
+                    words,
+                    FFMPEG,
+                    1.0,
+                    hook_text="TES MODE",
+                    portrait=True,
+                    background=mode,
+                    facecam_corner="bottom-left" if mode == "facecam-top" else "top-right",
+                    watermark=str(logo) if mode == "facecam-top" and logo.is_file() else "",
+                )
+                self.assertTrue(output.is_file(), mode)
+                self.assertGreater(output.stat().st_size, 1000, mode)
+                self.assertEqual(probe_size(output, FFMPEG), (1080, 1920), mode)
 
 
 if __name__ == "__main__":

@@ -10,11 +10,11 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import cookies as cookie_store
 from . import session as session_store
 from .assets import ffmpeg_path
 from .config import DATA, load
 from .highlights import AIError, LANGUAGES, build_messages, chat, extract_clips, select_clips, translate_groups
+from .reframe import analyze_reframe
 from .render import group_words, render_clip
 from .subtitles import Word, parse_subtitle, slice_words, transcript
 from .ytdlp import YtdlpError, download_section, download_subtitle, pick_subtitle, video_info
@@ -111,6 +111,14 @@ def get(job_id: str) -> dict:
         if not job:
             raise KeyError("Job not found")
         return copy.deepcopy(job)
+
+
+def active_job() -> dict | None:
+    with _lock:
+        for job in reversed(list(JOBS.values())):
+            if job["status"] == "running":
+                return copy.deepcopy(job)
+        return None
 
 
 def _cookies_path() -> Path:
@@ -305,6 +313,7 @@ def _render_worker(job: dict, params: dict) -> None:
                 _update(job, progress=(position + 1) / total * 100)
                 continue
             job_dir = workdir / f"clip_{index + 1}"
+            is_smart_fill = bool(render_opts.get("portrait", True)) and render_opts.get("background", "black") == "fill"
             try:
                 _update(job, message=f"Downloading clip {position + 1}/{total} (#{index + 1})", progress=(position / total) * 100)
                 _log(job, f"Clip {index + 1}: {clip.get('start')}s - {clip.get('end')}s")
@@ -319,7 +328,18 @@ def _render_worker(job: dict, params: dict) -> None:
                         if percent is not None
                         else None
                     ),
+                    max_height=2160 if is_smart_fill else 1080,
                 )
+                reframe_shots = None
+                if is_smart_fill:
+                    _update(job, message="Menganalisis wajah & shot...")
+                    try:
+                        reframe_shots = analyze_reframe(section, ffmpeg, on_log=lambda m: _log(job, m))
+                    except Exception as exc:  # noqa: BLE001 - fallback to static crop cleanly
+                        _log(job, f"Auto-reframe gagal ({exc}); memakai center crop")
+                        reframe_shots = None
+                    if reframe_shots:
+                        _log(job, f"Auto-reframe: {len(reframe_shots)} segmen shot")
                 _update(
                     job,
                     message=f"Rendering clip {position + 1}/{total} (#{index + 1})",
@@ -365,6 +385,8 @@ def _render_worker(job: dict, params: dict) -> None:
                     hook_seconds=float(render_opts.get("hookSeconds", 3)),
                     portrait=bool(render_opts.get("portrait", True)),
                     background=render_opts.get("background", "black"),
+                    facecam_corner=render_opts.get("facecamCorner", "top-right"),
+                    reframe_shots=reframe_shots,
                     captions=bool(render_opts.get("captions", True)),
                     hook=bool(render_opts.get("hook", True)),
                     watermark=render_opts.get("watermark", ""),
@@ -372,6 +394,7 @@ def _render_worker(job: dict, params: dict) -> None:
                     caption_style=render_opts.get("captionStyle", "highlight"),
                     caption_font=render_opts.get("captionFont", "Arial Black"),
                     caption_bold=bool(render_opts.get("captionBold", True)),
+                    caption_uppercase=bool(render_opts.get("captionUppercase", False)),
                     hook_style=render_opts.get("hookStyle", "classic"),
                     watermark_position=render_opts.get("watermarkPosition", "top-right"),
                     credit_position=render_opts.get("creditPosition", "bottom-center"),
@@ -393,8 +416,10 @@ def _render_worker(job: dict, params: dict) -> None:
                 }
                 _log(job, f"Clip {index + 1} done: {out.name}")
                 _update(job, progress=(position + 1) / total * 100)
-            except (JobError, YtdlpError, RuntimeError) as exc:
-                out.unlink(missing_ok=True)
+            except (JobError, YtdlpError, RuntimeError, OSError) as exc:
+                if not (out.exists() and out.stat().st_size > 1000):
+                    out.unlink(missing_ok=True)
+                    by_index.pop(index, None)
                 errors.append(f"Clip {index + 1}: {exc}")
                 _log(job, f"Clip {index + 1} failed: {exc}")
             finally:

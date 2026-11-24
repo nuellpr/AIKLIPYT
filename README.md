@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versi-v1.0.5-blue" alt="Versi v1.0.5">
+  <img src="https://img.shields.io/badge/versi-v1.0.6-blue" alt="Versi v1.0.6">
   <img src="https://img.shields.io/badge/lisensi-MIT-green" alt="Lisensi MIT">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/tests-92%20passing-brightgreen" alt="92 test lulus">
+  <img src="https://img.shields.io/badge/tests-128%20passing-brightgreen" alt="128 test lulus">
 </p>
 
 **Studio klip YouTube yang berjalan di komputermu sendiri.** Tempel URL, biarkan AI
@@ -21,7 +21,7 @@ Ditulis ulang dari nol berdasarkan perilaku yang diamati dari **YT Short Clipper
 (v2.0.7-beta) lewat analisis REA. Ini **bukan salinan** kode atau aset aplikasi asli —
 yang sama hanya alur kerjanya; implementasinya bersih dan terbuka.
 
-**Rilis terbaru:** [v1.0.5](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5)
+**Rilis terbaru:** [v1.0.6](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6)
 · [Riwayat perubahan](CHANGELOG.md) · [Lisensi MIT](LICENSE) · [Kebijakan Keamanan](SECURITY.md)
 
 ## Daftar isi
@@ -51,10 +51,10 @@ dan mudah diubah. UI berjalan di browser pada `http://127.0.0.1:8765`.
 - Cari highlight dari transkrip YouTube (manual atau auto-generated).
 - AI OpenAI-compatible: OpenAI, Groq, Gemini, OpenRouter, vLLM lokal, dan lain-lain.
   Tombol **Muat model** mengisi dropdown; pilih **Custom** untuk mengetik nama model.
-- Klip 9:16 dengan latar hitam atau blur; opsi 16:9 dan durasi 5–600 detik.
-- **14 gaya subtitle** dan **10 gaya Judul pembuka (Hook)** dengan kartu preview beranimasi di Pengaturan — lihat [Gaya subtitle](#gaya-subtitle).
-- **Live preview 9:16 / 16:9** saat menempel link YouTube: langsung menampilkan thumbnail video, latar hitam/blur, hook, dan simulasi subtitle sesuai Pengaturan.
-- Pilihan **13 font subtitle** dan opsi **Huruf subtitle tebal (Bold)** di Pengaturan.
+- Klip 9:16 dengan latar hitam, blur, atau **Layar penuh (center crop 9:16)**; opsi 16:9 dan durasi 5–600 detik.
+- **14 gaya subtitle** dan **11 gaya Judul pembuka (Hook)** (termasuk **Kartu Retro**) dengan kartu preview beranimasi di Pengaturan — lihat [Gaya subtitle](#gaya-subtitle).
+- **Live preview 9:16 / 16:9** saat menempel link YouTube: langsung menampilkan thumbnail video, latar hitam/blur/layar penuh, hook, dan simulasi subtitle sesuai Pengaturan.
+- Pilihan **13 font subtitle** dan **Gaya huruf subtitle** (`Normal`, `Bold`, `KAPITAL`, `KAPITAL + Bold`) di Pengaturan.
 - Warna aksen caption dan hook yang bisa diatur; teks kredit, dan watermark PNG/JPG dengan 9 posisi serta transparansi yang bisa di-preview.
 - Encoder hardware (NVENC/QSV/AMF) dipilih lewat uji encode nyata, lalu fallback otomatis ke libx264. Encoder tanpa GPU/driver tidak akan dicoba.
 - Pustaka sesi lokal: preview klip, muat ulang highlight ke tab Buat, buka folder, hapus.
@@ -194,14 +194,16 @@ AIKLIPYT/
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Saat ini **92 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
-dan memverifikasi output 1080x1920, termasuk 14 gaya subtitle, 10 gaya hook, pilihan font/bold,
+Saat ini **128 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
+dan memverifikasi output 1080x1920, termasuk 14 gaya subtitle, 11 gaya hook, 8 mode
+latar (termasuk auto-reframe OpenCV YuNet untuk mode `fill`), pilihan font/bold/kapital,
 dan validasi keamanan server. Test DPAPI hanya berjalan di Windows.
 
 ## Rilis
 
 | Versi | Tanggal | Catatan |
 |---|---|---|
+| [v1.0.6](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6) | 2026-11-24 | Smart auto-reframe YuNet + Lanczos/unsharp (`fill`), 8 mode framing, hook Kartu Retro, gaya huruf 4 arah, perbaikan 18 temuan audit, 128 test |
 | [v1.0.5](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5) | 2026-11-21 | 10 gaya hook, carousel kartu beranimasi, live preview thumbnail YouTube, perbaikan tumpang tindih subtitle & pengerasan keamanan, LICENSE MIT & SECURITY.md |
 | [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4) | 2026-11-19 | Pilihan font subtitle & toggle Bold, perbaikan lookup `assets/ffmpeg`, render ASS & UI |
 | [v1.0.3](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.3) | 2026-11-17 | 5 gaya subtitle kreator, bilingual, pengerasan API & media |
@@ -253,19 +255,20 @@ menyertakan biner pihak ketiga (FFmpeg GPL-3.0 dan Deno MIT) — lihat [THIRD_PA
 | Telemetri | GA4 measurement protocol | Tidak ada |
 | Cookies | Wajib, bisa seluruh browser | Opsional, difilter YouTube |
 | API key | Windows Credential Manager | DPAPI (config terenkripsi) |
-| Face tracking | MediaPipe face landmarker | Belum; center crop / blur |
+| Face tracking | MediaPipe face landmarker | Shot-locked OpenCV YuNet (`fill`) + 8 mode |
 | Upload Repliz | Ada | Tidak ada |
 | Auto-update | Cek server + download | Tidak ada |
 | Durasi klip | 58–120 detik | Bisa diatur 5–600 detik |
 | Gaya subtitle | — | 14 gaya, termasuk bilingual |
-| Tests | Tidak diketahui | 78 unit/integration test |
+| Tests | Tidak diketahui | 128 unit/integration test |
 
 ## Batasan yang jujur
 
 - **Butuh subtitle.** Kalau video tidak punya caption sama sekali, app berhenti dengan
   pesan jelas. Tidak ada fallback Whisper.
-- **Belum ada face tracking.** Reframe vertikal memakai center crop (hitam atau blur).
-  Untuk konten yang wajahnya selalu di tengah, hasilnya sudah layak.
+- **Auto-reframe dikunci per shot kamera.** Mode `fill` mendeteksi wajah & pembicara aktif
+  di tiap pergantian shot menggunakan OpenCV YuNet, namun dalam satu *wide 2-shot* panjang
+  tanpa *camera cut*, frame tetap terkunci pada pembicara yang terpilih hingga cut berikutnya.
 - **Tidak ada Repliz / penjadwalan sosmed / billing.** Fokus versi ini: menghasilkan
   file MP4.
 - **Caption manual bersifat perkiraan.** Word timing asli hanya tersedia di track auto
@@ -280,4 +283,4 @@ menyertakan biner pihak ketiga (FFmpeg GPL-3.0 dan Deno MIT) — lihat [THIRD_PA
 
 ---
 
-AIKLIPYT v1.0.5 · MIT · lokal, tanpa telemetri.
+AIKLIPYT v1.0.6 · MIT · lokal, tanpa telemetri.

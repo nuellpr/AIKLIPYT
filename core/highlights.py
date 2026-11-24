@@ -38,9 +38,11 @@ class AIError(RuntimeError):
 
 def _strip_fences(text: str) -> str:
     text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
+    match = re.search(r"```[a-zA-Z]*\s*(.*?)\s*```", text, re.S)
+    if match:
+        return match.group(1).strip()
+    if "```" in text:
+        text = re.sub(r"^.*?```[a-zA-Z]*\s*", "", text, count=1, flags=re.S)
     return text.strip()
 
 
@@ -95,16 +97,31 @@ def extract_clips(text: str) -> list[dict]:
             else:
                 candidates = [value]
     except ValueError:
-        start = cleaned.find("[")
-        if start >= 0:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"[\[{]", cleaned):
             try:
-                value, _ = json.JSONDecoder().raw_decode(cleaned[start:])
-                if isinstance(value, list):
-                    candidates = value
+                value, _ = decoder.raw_decode(cleaned[match.start():])
             except ValueError:
-                pass
+                continue
+            if isinstance(value, dict):
+                for key in ("clips", "highlights", "data", "results"):
+                    items = value.get(key)
+                    if isinstance(items, list) and any(isinstance(i, dict) for i in items):
+                        candidates = items
+                        break
+                if candidates:
+                    break
+            elif isinstance(value, list) and any(isinstance(i, dict) for i in value):
+                candidates = value
+                break
         if not candidates:
-            candidates = _salvage_objects(cleaned)
+            array_match = re.search(r'"(?:clips|highlights|data|results)"\s*:\s*\[', cleaned)
+            if array_match:
+                salvage_src = cleaned[array_match.end():]
+            else:
+                list_match = re.search(r"\[\s*\{", cleaned)
+                salvage_src = cleaned[list_match.start() + 1:] if list_match else cleaned
+            candidates = _salvage_objects(salvage_src)
     return [item for item in candidates if isinstance(item, dict)]
 
 
@@ -258,7 +275,7 @@ Title: {info.get('title') or 'Unknown'}
 Channel: {info.get('channel') or info.get('uploader') or 'Unknown'}
 Duration: {int(info.get('duration') or 0)} seconds
 
-TRANSCRIPT (timestamps are mm:ss)
+TRANSCRIPT (timestamps are mm:ss or h:mm:ss)
 {transcript}
 
 {excluded}TASK
@@ -323,7 +340,7 @@ def chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout:
         with opener.open(request, timeout=timeout) as response:
             payload = json.loads(response.read(4_000_000).decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:500]
+        detail = exc.read(2000).decode("utf-8", "replace")[:500]
         exc.close()
         raise AIError(f"AI provider returned HTTP {exc.code}: {detail}") from exc
     except urllib.error.URLError as exc:
@@ -368,10 +385,22 @@ def translate_groups(
         },
     ]
     content, _ = chat(base_url, api_key, model, messages, timeout=timeout)
+    cleaned = _strip_fences(content)
+    result = None
     try:
-        result = json.loads(_strip_fences(content))
-    except (ValueError, TypeError) as exc:
-        raise AIError("AI translation was not valid JSON") from exc
+        result = json.loads(cleaned)
+    except (ValueError, TypeError):
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\[", cleaned):
+            try:
+                candidate, _ = decoder.raw_decode(cleaned[match.start():])
+            except ValueError:
+                continue
+            if isinstance(candidate, list) and all(isinstance(item, str) for item in candidate):
+                result = candidate
+                break
+        if result is None:
+            raise AIError("AI translation was not valid JSON")
     if (
         not isinstance(result, list)
         or len(result) != len(texts)

@@ -9,11 +9,13 @@ from server import (  # noqa: E402
     MAX_BODY,
     Handler,
     _apply_settings,
+    _cleanup_old_watermark,
     _normalize_caption_font,
     _normalize_caption_style,
     _normalize_hook_style,
     _model_auth,
     _origin_allowed,
+    _public_config,
     _static_path,
     _trusted_host,
     _trusted_origin,
@@ -214,6 +216,44 @@ class HookStyleTests(unittest.TestCase):
         self.assertEqual(tuple(values), HOOK_STYLES)
 
 
+class BackgroundModeTests(unittest.TestCase):
+    def test_all_background_modes_and_facecam_corners_accepted_and_ui_matches(self):
+        import copy
+        import re
+        from unittest import mock
+        from core.config import DEFAULTS
+        from core.render import BACKGROUND_MODES, FACECAM_CORNERS
+
+        self.assertEqual(len(BACKGROUND_MODES), 8)
+        self.assertEqual(len(FACECAM_CORNERS), 4)
+
+        html = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text(encoding="utf-8")
+        bg_block = re.search(r'<select id="background"[^>]*>(.*?)</select>', html, re.S)
+        self.assertIsNotNone(bg_block)
+        bg_values = re.findall(r'<option value="([^"]+)">', bg_block.group(1))
+        self.assertEqual(tuple(bg_values), BACKGROUND_MODES)
+
+        fc_block = re.search(r'<select id="facecamCorner"[^>]*>(.*?)</select>', html, re.S)
+        self.assertIsNotNone(fc_block)
+        fc_values = re.findall(r'<option value="([^"]+)">', fc_block.group(1))
+        self.assertEqual(tuple(fc_values), FACECAM_CORNERS)
+
+        with (
+            mock.patch("server.load", side_effect=lambda: copy.deepcopy(DEFAULTS)),
+            mock.patch("server.save", side_effect=lambda cfg: cfg),
+            mock.patch("server._cleanup_old_watermark"),
+        ):
+            for mode in BACKGROUND_MODES:
+                res = _apply_settings({"render": {"background": mode}})
+                self.assertEqual(res["render"]["background"], mode)
+            for corner in FACECAM_CORNERS:
+                res = _apply_settings({"render": {"facecamCorner": corner}})
+                self.assertEqual(res["render"]["facecamCorner"], corner)
+            bad = _apply_settings({"render": {"background": "unknown-mode", "facecamCorner": "middle"}})
+            self.assertEqual(bad["render"]["background"], "black")
+            self.assertEqual(bad["render"]["facecamCorner"], "top-right")
+
+
 class SettingsValidationTests(unittest.TestCase):
     def test_apply_settings_clamps_whitelists_and_rejects_nonfinite(self):
         from unittest import mock
@@ -239,6 +279,27 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertNotIn("unknownKey", result["clip"])
         self.assertNotIn("evil", result["paths"])
 
+    def test_apply_settings_accepts_fill_and_uppercase(self):
+        from unittest import mock
+        import copy
+        from core.config import DEFAULTS
+
+        saved_holder = {}
+        with (
+            mock.patch("server.load", return_value=copy.deepcopy(DEFAULTS)),
+            mock.patch("server.save", side_effect=lambda cfg: saved_holder.setdefault("cfg", cfg)),
+            mock.patch("server._cleanup_old_watermark"),
+        ):
+            result = _apply_settings(
+                {
+                    "render": {"background": "fill", "captionBold": False, "captionUppercase": True, "hookStyle": "retro-card"}
+                }
+            )
+        self.assertEqual(result["render"]["background"], "fill")
+        self.assertFalse(result["render"]["captionBold"])
+        self.assertTrue(result["render"]["captionUppercase"])
+        self.assertEqual(result["render"]["hookStyle"], "retro-card")
+
     def test_max_body_fits_base64_6mb_watermark(self):
         # 6 MB binary becomes 8 MB base64 plus JSON envelope.
         self.assertGreater(MAX_BODY, (6 * 1024 * 1024 * 4) // 3 + 1024)
@@ -251,6 +312,45 @@ class SettingsValidationTests(unittest.TestCase):
         with mock.patch("server.load", return_value=copy.deepcopy(DEFAULTS)):
             with self.assertRaises(ValueError):
                 _apply_settings({"ai": {"baseUrl": "file:///etc/passwd"}})
+
+    def test_apply_settings_clears_key_when_base_url_changes(self):
+        from unittest import mock
+        import copy
+        from core.config import DEFAULTS
+
+        base_cfg = copy.deepcopy(DEFAULTS)
+        base_cfg["ai"]["baseUrl"] = "https://api.openai.com/v1"
+        base_cfg["ai"]["apiKeyEnc"] = "dpapi:existing"
+        saved_holder = {}
+        with (
+            mock.patch("server.load", side_effect=lambda: copy.deepcopy(base_cfg)),
+            mock.patch("server.save", side_effect=lambda cfg: saved_holder.setdefault("cfg", cfg)),
+            mock.patch("server._cleanup_old_watermark"),
+        ):
+            changed = _apply_settings({"ai": {"baseUrl": "https://other.example/v1"}})
+            self.assertEqual(changed["ai"]["apiKeyEnc"], "")
+
+            saved_holder.clear()
+            same_slash = _apply_settings({"ai": {"baseUrl": "https://api.openai.com/v1/"}})
+            self.assertEqual(same_slash["ai"]["apiKeyEnc"], "dpapi:existing")
+
+            saved_holder.clear()
+            with mock.patch("server.protect", return_value="dpapi:new"):
+                with_new_key = _apply_settings({"ai": {"baseUrl": "https://other.example/v1", "apiKey": "sk-new"}})
+                self.assertEqual(with_new_key["ai"]["apiKeyEnc"], "dpapi:new")
+
+    def test_public_config_flags_unreadable_dpapi_key(self):
+        from unittest import mock
+        import copy
+        from core.config import DEFAULTS
+
+        bad_cfg = copy.deepcopy(DEFAULTS)
+        bad_cfg["ai"]["apiKeyEnc"] = "dpapi:AAAA"
+        with mock.patch("server.load", return_value=bad_cfg):
+            public = _public_config()
+        self.assertFalse(public["ai"]["hasKey"])
+        self.assertTrue(public["ai"]["keyUnreadable"])
+        self.assertNotIn("apiKeyEnc", public["ai"])
 
     def test_security_headers_present_on_html(self):
         sent = {}
@@ -271,6 +371,120 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertEqual(sent.get("Cross-Origin-Resource-Policy"), "same-origin")
         self.assertIn("Permissions-Policy", sent)
         self.assertIn("Content-Security-Policy", sent)
+        self.assertIn("https://*.ytimg.com", sent["Content-Security-Policy"])
+
+    def test_cleanup_old_watermark_sweeps_orphans(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as folder:
+            wm_dir = Path(folder)
+            keep = wm_dir / "keep.png"
+            orphan = wm_dir / "orphan.png"
+            keep.write_bytes(b"keep")
+            orphan.write_bytes(b"orphan")
+            with mock.patch("server.WATERMARKS", wm_dir):
+                _cleanup_old_watermark("", str(keep))
+                self.assertTrue(keep.exists())
+                self.assertFalse(orphan.exists())
+                _cleanup_old_watermark(str(keep), "")
+                self.assertFalse(keep.exists())
+
+
+class HttpServerIntegrationTests(unittest.TestCase):
+    def test_real_http_endpoints_and_security(self):
+        import copy
+        import json
+        import threading
+        import urllib.error
+        import urllib.request
+        from http.server import ThreadingHTTPServer
+        from unittest import mock
+        import server as srv
+        from core.config import DEFAULTS
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = copy.deepcopy(DEFAULTS)
+            cfg["ai"]["apiKeyEnc"] = "dpapi:AAAA"
+            cookies_path = root / "cookies.txt"
+            wm_dir = root / "watermarks"
+            wm_dir.mkdir()
+            running_job = {
+                "id": "job123",
+                "kind": "render",
+                "status": "running",
+                "progress": 45.0,
+                "message": "Rendering",
+                "log": [],
+                "result": None,
+                "error": "",
+                "createdAt": 100,
+            }
+
+            def fake_save(new_cfg):
+                nonlocal cfg
+                cfg = copy.deepcopy(new_cfg)
+                return copy.deepcopy(cfg)
+
+            http_server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            port = http_server.server_address[1]
+            thread = threading.Thread(target=http_server.serve_forever, daemon=True)
+            thread.start()
+            base = f"http://127.0.0.1:{port}"
+            try:
+                with (
+                    mock.patch.object(srv, "load", side_effect=lambda: copy.deepcopy(cfg)),
+                    mock.patch.object(srv, "save", side_effect=fake_save),
+                    mock.patch.object(srv, "COOKIES", cookies_path),
+                    mock.patch.object(srv, "WATERMARKS", wm_dir),
+                    mock.patch.dict(srv.pipeline.JOBS, {"job123": running_job}, clear=True),
+                    mock.patch.object(srv.session_store, "delete", side_effect=PermissionError("locked")),
+                ):
+                    with urllib.request.urlopen(f"{base}/") as resp:
+                        self.assertEqual(resp.status, 200)
+                        self.assertIn("https://*.ytimg.com", resp.headers.get("Content-Security-Policy", ""))
+
+                    with urllib.request.urlopen(f"{base}/api/state") as resp:
+                        state_data = json.loads(resp.read().decode("utf-8"))
+                    self.assertTrue(state_data["ok"])
+                    self.assertTrue(state_data["config"]["ai"]["keyUnreadable"])
+                    self.assertEqual(state_data["activeJob"]["id"], "job123")
+
+                    req_no_origin = urllib.request.Request(
+                        f"{base}/api/settings",
+                        data=b"{}",
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as err:
+                        urllib.request.urlopen(req_no_origin)
+                    self.assertEqual(err.exception.code, 403)
+                    err.exception.close()
+
+                    req_settings = urllib.request.Request(
+                        f"{base}/api/settings",
+                        data=json.dumps({"ai": {"baseUrl": "https://other.example/v1"}}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Origin": base},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_settings) as resp:
+                        updated = json.loads(resp.read().decode("utf-8"))
+                    self.assertFalse(updated["config"]["ai"]["hasKey"])
+                    self.assertFalse(updated["config"]["ai"]["keyUnreadable"])
+
+                    req_delete = urllib.request.Request(
+                        f"{base}/api/delete",
+                        data=json.dumps({"sessionId": "20260101_000000_demo"}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Origin": base},
+                        method="POST",
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as del_err:
+                        urllib.request.urlopen(req_delete)
+                    self.assertEqual(del_err.exception.code, 409)
+                    del_err.exception.close()
+            finally:
+                http_server.shutdown()
+                http_server.server_close()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.subtitles import (  # noqa: E402
     Word,
+    normalize_words,
     parse_json3,
     parse_srt,
     parse_timestamp,
@@ -20,9 +21,19 @@ class TimestampTests(unittest.TestCase):
     def test_formats(self):
         self.assertAlmostEqual(parse_timestamp("90"), 90)
         self.assertAlmostEqual(parse_timestamp("1:02"), 62)
+        self.assertAlmostEqual(parse_timestamp("105:20"), 6320)
         self.assertAlmostEqual(parse_timestamp("01:02:03,500"), 3723.5)
         self.assertAlmostEqual(parse_timestamp("0:12.250"), 12.25)
         self.assertIsNone(parse_timestamp("nope"))
+        self.assertIsNone(parse_timestamp(True))
+        self.assertIsNone(parse_timestamp("inf"))
+        self.assertIsNone(parse_timestamp(float("nan")))
+
+    def test_normalize_words_separates_same_start(self):
+        words = normalize_words([Word("pikir", 531.797, 531.997), Word("sana", 531.797, 531.997)])
+        self.assertEqual([w.word for w in words], ["pikir", "sana"])
+        self.assertLess(words[0].start, words[1].start)
+        self.assertLessEqual(words[0].end, words[1].start)
 
     def test_srt(self):
         srt = """1
@@ -101,6 +112,27 @@ Baris kedua
         words = parse_json3(data)
         self.assertEqual([w.word for w in words], ["first", "second"])
         self.assertLessEqual(words[0].end, words[1].start)
+
+    def test_json3_ignores_newline_segment_before_timing(self):
+        data = {
+            "events": [
+                {
+                    "tStartMs": 1000,
+                    "dDurationMs": 5000,
+                    "segs": [
+                        {"utf8": "hello"},
+                        {"utf8": "\n"},
+                        {"utf8": " world", "tOffsetMs": 1500},
+                    ],
+                }
+            ]
+        }
+        words = parse_json3(data)
+        self.assertEqual([w.word for w in words], ["hello", "world"])
+        self.assertAlmostEqual(words[0].start, 1.0)
+        self.assertAlmostEqual(words[0].end, 2.5)
+        self.assertAlmostEqual(words[1].start, 2.5)
+        self.assertAlmostEqual(words[1].end, 6.0)
 
     def test_vtt_leading_word_and_manual_fallback(self):
         auto_vtt = """WEBVTT

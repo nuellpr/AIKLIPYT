@@ -76,7 +76,7 @@
           <p class="hero-copy">Tempel URL YouTube. AI membaca transkrip, memilih momen yang berdiri sendiri, lalu merender klip 9:16 dengan caption per kata dan hook.</p>
           <div class="stats">
             <div><b id="statClips">05</b><span>KLIP</span></div>
-            <div><b>9:16</b><span>FORMAT</span></div>
+            <div><b id="statFormat">9:16</b><span>FORMAT</span></div>
             <div><b>03</b><span>LANGKAH</span></div>
           </div>
         </div>
@@ -162,6 +162,7 @@
               <div class="phone-wrap">
                 <div class="phone" id="previewPhone">
                   <img class="phone-bg hidden" id="previewBg" alt="">
+                  <img class="phone-video-top hidden" id="previewThumbTop" alt="">
                   <img class="phone-video hidden" id="previewThumb" alt="">
                   <div class="phone-glow glow-lime"></div>
                   <div class="phone-glow glow-warm"></div>
@@ -290,10 +291,13 @@
               <input id="baseUrl" autocomplete="off" spellcheck="false" placeholder="https://….example/v1">
             </label>
             <p class="hint">Google: <code>https://generativelanguage.googleapis.com/v1beta/openai</code> — API key dari Google AI Studio. Pilih <b>Custom</b> untuk endpoint lain.</p>
-            <label class="field">
+            <div class="field">
               <span>API key</span>
-              <input id="apiKey" type="password" autocomplete="new-password" placeholder="Tersimpan aman — isi hanya untuk mengganti">
-            </label>
+              <div class="model-row">
+                <input id="apiKey" type="password" autocomplete="new-password" placeholder="Tersimpan aman — isi hanya untuk mengganti">
+                <button class="btn ghost small" id="clearApiKey" type="button">Hapus key</button>
+              </div>
+            </div>
             <p class="hint">Disimpan dengan DPAPI milik Windows (hanya user ini). Kosongkan untuk mempertahankan key lama.</p>
             <div class="field">
               <span>Model</span>
@@ -328,18 +332,38 @@
                 <input id="padding" type="number" min="0" max="5" step="0.05">
               </label>
             </div>
-            <div class="field-row">
-              <label class="check">
-                <input id="portrait" type="checkbox">
-                <span>Reframe vertikal 9:16</span>
-              </label>
-              <label class="field">
-                <span>Latar vertikal</span>
-                <select id="background">
-                  <option value="black">Hitam</option>
-                  <option value="blurred">Blur dari video</option>
+            <label class="check">
+              <input id="portrait" type="checkbox">
+              <span>Reframe vertikal 9:16</span>
+            </label>
+            <div class="field" id="backgroundPicker">
+              <span>Mode klip 9:16</span>
+              <div class="mode-strip" id="backgroundStrip" role="radiogroup" aria-label="Mode klip 9:16"></div>
+              <select id="background" class="hidden" aria-hidden="true" tabindex="-1">
+                <option value="black">Hitam</option>
+                <option value="blurred">Blur dari video</option>
+                <option value="fill">Layar penuh (Crop 9:16)</option>
+                <option value="split">Split Podcast (Atas &amp; Bawah)</option>
+                <option value="crop-left">Crop Kiri (9:16)</option>
+                <option value="crop-right">Crop Kanan (9:16)</option>
+                <option value="facecam-top">Gaming / Reaction (Facecam atas)</option>
+                <option value="cinema">Zoom 4:5 (Ruang hook &amp; subtitle)</option>
+              </select>
+              <div id="facecamCornerRow" class="facecam-row hidden">
+                <span class="facecam-label">Posisi facecam di video asli</span>
+                <div class="seg-group" id="facecamCornerGroup" role="radiogroup" aria-label="Posisi facecam">
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-corner="top-left"><small>Kiri atas</small></button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-corner="top-right"><small>Kanan atas</small></button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-corner="bottom-left"><small>Kiri bawah</small></button>
+                  <button type="button" class="seg-btn" role="radio" aria-checked="false" data-corner="bottom-right"><small>Kanan bawah</small></button>
+                </div>
+                <select id="facecamCorner" class="hidden" aria-hidden="true" tabindex="-1">
+                  <option value="top-left">Kiri atas</option>
+                  <option value="top-right">Kanan atas</option>
+                  <option value="bottom-left">Kiri bawah</option>
+                  <option value="bottom-right">Kanan bawah</option>
                 </select>
-              </label>
+              </div>
             </div>
 
             <div class="style-picker" id="subtitlePicker">
@@ -378,7 +402,7 @@
                 <option value="bilingual">Bilingual (dua bahasa)</option>
               </select>
               <div class="tuning-drawer hidden" id="captionTuning">
-                <div class="field-row field-row-3">
+                <div class="field-row">
                   <label class="field">
                     <span>Warna aksen</span>
                     <input id="captionColor" type="color" value="#ffd700">
@@ -401,12 +425,19 @@
                       <option value="Consolas">Consolas</option>
                     </select>
                   </label>
-                  <label class="check">
-                    <input id="captionBold" type="checkbox">
-                    <span>Huruf tebal (Bold)</span>
-                  </label>
                 </div>
-                <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Font <b>Arial Black</b> dan <b>Impact</b> selalu tebal bawaan; gaya Gadzhi tetap tipis minimalis; Bilingual menerjemahkan ke Bahasa output default di Pengaturan.</p>
+                <div class="field">
+                  <span>Gaya huruf subtitle</span>
+                  <div class="seg-group" id="captionCaseGroup" role="radiogroup" aria-label="Gaya huruf subtitle">
+                    <button type="button" class="seg-btn" role="radio" aria-checked="false" data-mode="normal"><span>Aa</span><small>Normal</small></button>
+                    <button type="button" class="seg-btn" role="radio" aria-checked="false" data-mode="bold"><b>Aa</b><small>Bold</small></button>
+                    <button type="button" class="seg-btn" role="radio" aria-checked="false" data-mode="upper"><span>AA</span><small>KAPITAL</small></button>
+                    <button type="button" class="seg-btn" role="radio" aria-checked="false" data-mode="upper-bold"><b>AA</b><small>KAPITAL + Bold</small></button>
+                  </div>
+                  <input id="captionBold" type="checkbox" class="hidden" aria-hidden="true" tabindex="-1">
+                  <input id="captionUppercase" type="checkbox" class="hidden" aria-hidden="true" tabindex="-1">
+                </div>
+                <p class="hint">Warna aksen dipakai untuk kata aktif dan hook. Pilihan <b>KAPITAL</b> / <b>KAPITAL + Bold</b> berlaku untuk semua gaya subtitle; font <b>Arial Black</b> dan <b>Impact</b> selalu tebal bawaan; gaya Gadzhi tetap tipis minimalis; Bilingual menerjemahkan ke Bahasa output default.</p>
               </div>
             </div>
 
@@ -440,6 +471,7 @@
                 <option value="impact">Impact Slam</option>
                 <option value="tape">Stiker Miring</option>
                 <option value="spotlight">Sorot</option>
+                <option value="retro-card">Kartu Retro</option>
               </select>
               <div class="tuning-drawer hidden" id="hookTuning">
                 <label class="field">
@@ -496,7 +528,7 @@
                 <div class="preview-grid"></div>
                 <img id="previewWatermark" class="preview-watermark pos-top-right hidden" alt="">
                 <span id="previewCredit" class="preview-credit pos-bottom-center hidden">@channel</span>
-                <span class="preview-frame">PREVIEW 9:16</span>
+                <span class="preview-frame" id="brandPreviewFrame">PREVIEW 9:16</span>
               </div>
               <p class="hint">Posisi mengikuti output vertikal 1080×1920.</p>
             </div>
@@ -521,7 +553,7 @@
             <p class="eyebrow">TENTANG APLIKASI</p>
             <h1>AIKLIPYT</h1>
           </div>
-          <span class="tag" data-version-tag>v1.0.5</span>
+          <span class="tag" data-version-tag>v1.0.6</span>
         </div>
 
         <div class="about-grid">
@@ -543,7 +575,7 @@
           <section class="panel">
             <div class="panel-head"><h2>Detail</h2><span class="tag">edisi lokal</span></div>
             <dl class="about-meta">
-              <div><dt>Versi</dt><dd data-version>1.0.5</dd></div>
+              <div><dt>Versi</dt><dd data-version>1.0.6</dd></div>
               <div><dt>Lisensi</dt><dd>MIT</dd></div>
               <div><dt>Mesin</dt><dd>Python 3.11+</dd></div>
               <div><dt>Render</dt><dd>FFmpeg (lokal)</dd></div>
@@ -552,7 +584,7 @@
             </dl>
             <div class="about-links">
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT" target="_blank" rel="noreferrer">GitHub</a>
-              <a class="btn ghost small" data-release-link href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5" target="_blank" rel="noreferrer">Rilis v1.0.5</a>
+              <a class="btn ghost small" data-release-link href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6" target="_blank" rel="noreferrer">Rilis v1.0.6</a>
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/LICENSE" target="_blank" rel="noreferrer">Lisensi MIT</a>
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Keamanan</a>
               <a class="btn ghost small" href="https://www.figma.com/design/P83HXlUX9HexU1lZJeWkRa" target="_blank" rel="noreferrer">Desain Figma</a>
@@ -572,7 +604,7 @@
     </main>
 
     <footer>
-      <span>AIKLIPYT <span data-version-tag>v1.0.5</span> · MIT · lokal, tanpa telemetri</span>
+      <span>AIKLIPYT <span data-version-tag>v1.0.6</span> · MIT · lokal, tanpa telemetri</span>
       <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
     </footer>
   </div>

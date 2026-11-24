@@ -2,6 +2,21 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.6] - 2026-11-24
+
+### Added
+- **Smart Auto-Reframe 9:16** untuk mode Layar Penuh (`fill`) di `core/reframe.py`: deteksi pergantian kamera (`scdet`), deteksi wajah & landmark mata/bibir dengan model offline OpenCV Zoo YuNet (`cv2.FaceDetectorYN` di `assets/models/face_detection_yunet_2023mar.onnx`), pelacakan pembicara aktif per shot, upscale tajam `flags=lanczos` + `unsharp`, dan unduhan sumber hingga `2160p`.
+- **5 mode framing 9:16 baru** (total 8 mode di Pengaturan): `fill` (Layar Penuh auto-reframe), `split` (Split Podcast atas–bawah), `crop-left` (Crop Kiri), `crop-right` (Crop Kanan), `facecam-top` (Gaming / Reaction dengan pemilih 4 pojok facecam), dan `cinema` (Zoom 4:5), lengkap dengan live preview ponsel.
+- **Gaya Judul pembuka `retro-card` (Kartu Retro)** bergaya kartu kuning berbayang dengan animasi ketik dan penyesuaian otomatis margin caption agar tidak bertumpuk.
+- **Pemilih gaya huruf subtitle 4 arah** (`Normal`, `Bold`, `KAPITAL`, `KAPITAL + Bold`) lewat kontrol terpadu `captionBold` + `captionUppercase`.
+- **128 unit/integration test**, termasuk `tests/test_reframe.py`, verifikasi FFmpeg sungguhan untuk semua mode framing baru, resolusi path cookies, dan pembersihan codebase.
+
+### Security
+- Pengerasan hasil audit: validasi DPAPI & penandaan `keyUnreadable`, penghapusan API key tersimpan saat `baseUrl` berubah tanpa key baru, pembersihan file watermark yatim, pembatasan timeout `taskkill /F /T` pada `yt-dlp`, serta sanitasi environment/path.
+
+### Fixed
+- Perbaikan 18 temuan audit kualitas & stabilitas: penutupan aman stream/handle proses dan `cv2.VideoCapture`, penulisan atomik konfigurasi/sesi, edge case pemotongan waktu & pengelompokan kata, resolusi path absolut `cookies` di `core/ytdlp.py`, dan peningkatan `bottom_margin` subtitle portrait ke `300` (`alt_margin` `396`) agar aman dari area UI Shorts.
+
 ## [1.0.5] - 2026-11-21
 
 ### Added

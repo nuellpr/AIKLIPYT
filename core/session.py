@@ -61,7 +61,10 @@ def create(url: str, info: dict, choice: dict, words: list, cues: list, transcri
         "thumbnail": info.get("thumbnail") or "",
         "subtitle": choice,
         "highlights": highlights,
-        "ai": {"model": usage.get("model", ""), "usage": usage},
+        "ai": {
+            "model": usage.get("model", ""),
+            "usage": usage.get("usage", {}) if "model" in usage else usage,
+        },
     }
     (folder / "session.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     output_dir(session_id).mkdir(parents=True, exist_ok=True)
@@ -134,7 +137,7 @@ def delete(session_id: str) -> None:
     folder = session_dir(session_id)
     if not folder.is_dir():
         raise FileNotFoundError("Session not found")
-    shutil.rmtree(folder)
     out = output_dir(session_id)
     if out.is_dir():
         shutil.rmtree(out)
+    shutil.rmtree(folder)

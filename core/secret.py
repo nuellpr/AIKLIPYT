@@ -48,7 +48,10 @@ def unprotect(value: str) -> str:
     if not value:
         return ""
     if value.startswith("dpapi:") and _IS_WIN:
-        return _dpapi(base64.b64decode(value[6:]), True).decode("utf-8")
+        try:
+            return _dpapi(base64.b64decode(value[6:]), True).decode("utf-8")
+        except (OSError, ValueError):
+            return ""
     if value == "env":
         return os.environ.get("AIKLIPYT_API_KEY", "")
     return ""

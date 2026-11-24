@@ -41,7 +41,7 @@ def _base(url: str, cookies: str | None) -> list[str]:
         "3",
     ]
     if cookies and Path(cookies).is_file():
-        args += ["--cookies", cookies]
+        args += ["--cookies", str(Path(cookies).resolve())]
     ffmpeg = ffmpeg_path()
     if ffmpeg:
         args += ["--ffmpeg-location", ffmpeg]
@@ -190,12 +190,22 @@ def download_section(
     workdir: Path,
     on_line=None,
     timeout: int = 900,
+    max_height: int = 1080,
 ) -> Path:
     workdir.mkdir(parents=True, exist_ok=True)
+    if max_height > 1080:
+        fmt = (
+            f"bv*[height<={max_height}]+ba[acodec^=mp4a]/"
+            f"bv*[height<={max_height}]+ba/"
+            f"bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/"
+            f"b[height<={max_height}]/b"
+        )
+    else:
+        fmt = "bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080]+ba/b[height<=1080]/b"
     args = _base(url, cookies)
     args[3:3] = [
         "-f",
-        "bv*[height<=1080][vcodec^=avc1]+ba[acodec^=mp4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
+        fmt,
         "--download-sections",
         f"*{_clock(start)}-{_clock(end)}",
         "--force-keyframes-at-cuts",
@@ -216,9 +226,23 @@ def download_section(
     timed_out = threading.Event()
     assert process.stdout is not None
 
+    def _kill_tree() -> None:
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    capture_output=True,
+                    timeout=10,
+                    creationflags=_CREATE_NO_WINDOW,
+                )
+                return
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        process.kill()
+
     def _kill_on_timeout() -> None:
         timed_out.set()
-        process.kill()
+        _kill_tree()
 
     watchdog = threading.Timer(timeout, _kill_on_timeout)
     watchdog.daemon = True
@@ -233,9 +257,9 @@ def download_section(
             if on_line:
                 match = _PERCENT.search(line)
                 on_line(line, float(match.group(1)) if match else None)
-        process.wait(timeout=timeout)
+        process.wait(timeout=30)
     except subprocess.TimeoutExpired:
-        process.kill()
+        _kill_tree()
         raise YtdlpError("Timed out downloading video section")
     finally:
         watchdog.cancel()
