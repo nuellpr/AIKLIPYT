@@ -12,6 +12,12 @@ if not defined PY (
   pause
   exit /b 1
 )
+%PY% -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)" >nul 2>nul
+if errorlevel 1 (
+  echo Python 3.11 or newer is required. Installed Python is older than 3.11.
+  pause
+  exit /b 1
+)
 
 echo Creating virtual environment...
 %PY% -m venv .venv
@@ -36,5 +42,10 @@ if errorlevel 1 (
 copy /y requirements.txt ".venv\.req-stamp" >nul
 
 :launch
+if /I "%~1"=="--update" (
+  echo Updating yt-dlp...
+  ".venv\Scripts\python.exe" -m pip install --no-input --upgrade yt-dlp
+  exit /b %errorlevel%
+)
 ".venv\Scripts\python.exe" server.py %*
 if errorlevel 1 pause

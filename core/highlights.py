@@ -3,11 +3,31 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.error
-import urllib.request
 
-from .models import _NoRedirect
+from .models import RequestFailure, request_json
 from .subtitles import parse_timestamp
+
+LANGUAGE_OPTIONS = (
+    ("auto", "Auto / bahasa asli"),
+    ("en", "English"),
+    ("id", "Bahasa Indonesia"),
+    ("es", "Español"),
+    ("pt", "Português"),
+    ("fr", "Français"),
+    ("de", "Deutsch"),
+    ("it", "Italiano"),
+    ("nl", "Nederlands"),
+    ("pl", "Polski"),
+    ("ru", "Русский"),
+    ("tr", "Türkçe"),
+    ("ar", "العربية"),
+    ("hi", "हिन्दी"),
+    ("th", "ไทย"),
+    ("vi", "Tiếng Việt"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("zh", "中文"),
+)
 
 LANGUAGES = {
     "auto": "the language of the transcript",
@@ -36,14 +56,22 @@ class AIError(RuntimeError):
     pass
 
 
+def _candidate_blocks(text: str) -> list[str]:
+    cleaned = re.sub(r"<think>.*?</think>", "", (text or ""), flags=re.S | re.I).strip()
+    fenced = [b.strip() for b in re.findall(r"```[a-zA-Z0-9_-]*\s*(.*?)\s*```", cleaned, re.S) if b.strip()]
+    out = list(reversed(fenced))
+    if "```" in cleaned and not fenced:
+        tail = re.sub(r"^.*?```[a-zA-Z0-9_-]*\s*", "", cleaned, count=1, flags=re.S).strip()
+        if tail:
+            out.append(tail)
+    if cleaned and cleaned not in out:
+        out.append(cleaned)
+    return out
+
+
 def _strip_fences(text: str) -> str:
-    text = text.strip()
-    match = re.search(r"```[a-zA-Z]*\s*(.*?)\s*```", text, re.S)
-    if match:
-        return match.group(1).strip()
-    if "```" in text:
-        text = re.sub(r"^.*?```[a-zA-Z]*\s*", "", text, count=1, flags=re.S)
-    return text.strip()
+    blocks = _candidate_blocks(text)
+    return blocks[0] if blocks else ""
 
 
 def _salvage_objects(text: str) -> list[dict]:
@@ -82,8 +110,7 @@ def _salvage_objects(text: str) -> list[dict]:
     return objects
 
 
-def extract_clips(text: str) -> list[dict]:
-    cleaned = _strip_fences(text)
+def _extract_from_block(cleaned: str) -> list[dict]:
     candidates: list = []
     try:
         value = json.loads(cleaned)
@@ -123,6 +150,17 @@ def extract_clips(text: str) -> list[dict]:
                 salvage_src = cleaned[list_match.start() + 1:] if list_match else cleaned
             candidates = _salvage_objects(salvage_src)
     return [item for item in candidates if isinstance(item, dict)]
+
+
+def extract_clips(text: str) -> list[dict]:
+    fallback: list[dict] = []
+    for block in _candidate_blocks(text):
+        dicts = _extract_from_block(block)
+        if any(any(k in d for k in ("start", "start_time", "end", "end_time")) for d in dicts):
+            return dicts
+        if dicts and not fallback:
+            fallback = dicts
+    return fallback
 
 
 def _text(item: dict, *keys: str) -> str:
@@ -321,34 +359,41 @@ def chat(base_url: str, api_key: str, model: str, messages: list[dict], timeout:
         raise AIError("Base URL must start with http:// or https://")
     if not endpoint.endswith("/chat/completions"):
         endpoint += "/chat/completions"
-    body = json.dumps(
-        {"model": model, "messages": messages, "temperature": 0.6},
-        ensure_ascii=False,
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        endpoint,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "User-Agent": "AIKLIPYT/1.0",
-        },
-        method="POST",
-    )
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "AIKLIPYT/1.0",
+    }
+
+    def _send(include_temp: bool):
+        req_payload = {"model": model, "messages": messages}
+        if include_temp:
+            req_payload["temperature"] = 0.6
+        return request_json(
+            endpoint,
+            headers,
+            data=json.dumps(req_payload, ensure_ascii=False).encode("utf-8"),
+            timeout=timeout,
+        )
+
     try:
-        opener = urllib.request.build_opener(_NoRedirect)
-        with opener.open(request, timeout=timeout) as response:
-            payload = json.loads(response.read(4_000_000).decode("utf-8", "replace"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read(2000).decode("utf-8", "replace")[:500]
-        exc.close()
-        raise AIError(f"AI provider returned HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise AIError(f"Cannot reach the AI provider: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise AIError("AI provider timed out") from exc
-    except ValueError as exc:
-        raise AIError("AI provider returned invalid JSON") from exc
+        payload = _send(True)
+    except RequestFailure as exc:
+        if exc.kind == "http" and exc.code == 400 and "temperature" in exc.detail.lower():
+            try:
+                payload = _send(False)
+            except RequestFailure as retry_exc:
+                exc = retry_exc
+            else:
+                exc = None  # type: ignore[assignment]
+        if exc is not None:
+            if exc.kind == "http":
+                raise AIError(f"AI provider returned HTTP {exc.code}: {exc.detail}") from exc
+            if exc.kind == "conn":
+                raise AIError(f"Cannot reach the AI provider: {exc.detail}") from exc
+            if exc.kind == "timeout":
+                raise AIError("AI provider timed out") from exc
+            raise AIError("AI provider returned invalid JSON") from exc
 
     choices = payload.get("choices") or []
     if not choices:

@@ -95,7 +95,8 @@ def parse_srt(text: str) -> list[Cue]:
 
 def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
     text = text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff")
-    cues: list[Cue] = []
+    plain_cues: list[Cue] = []
+    timed_cues: list[Cue] = []
     words: list[Word] = []
     for block in re.split(r"\n\s*\n", text):
         lines = [line for line in block.split("\n") if line.strip()]
@@ -116,12 +117,15 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
         plain = plain.replace("\u00a0", " ")
         if not plain:
             continue
-        cues.append(Cue(start, end, " ".join(plain.split())))
+        plain_cues.append(Cue(start, end, " ".join(plain.split())))
         stamps = list(_INLINE_TS.finditer(body))
         if stamps:
             segments: list[tuple[float | None, float | None, str]] = []
             first_ts = parse_timestamp(stamps[0].group(1))
             line_start = body.rfind("\n", 0, stamps[0].start()) + 1
+            timed_plain = html.unescape(re.sub(r"<[^>]+>", "", body[line_start:])).replace("\u00a0", " ").strip()
+            if timed_plain:
+                timed_cues.append(Cue(start, end, " ".join(timed_plain.split())))
             prefix = body[line_start : stamps[0].start()]
             if prefix.strip():
                 segments.append((start, first_ts, prefix))
@@ -150,7 +154,8 @@ def parse_vtt(text: str) -> tuple[list[Cue], list[Word]]:
                     span = (word_end - word_start) * weight / total
                     words.append(Word(token, cursor, min(word_end, cursor + max(0.06, span))))
                     cursor += span
-    return cues, normalize_words(words) or words_from_cues(cues)
+    cues = timed_cues if timed_cues else plain_cues
+    return cues, normalize_words(words) or words_from_cues(plain_cues)
 
 
 def parse_json3(data: dict) -> list[Word]:
@@ -231,19 +236,42 @@ def words_from_cues(cues: list[Cue]) -> list[Word]:
     return normalize_words(words)
 
 
-def slice_words(words: list[Word], start: float, end: float) -> list[Word]:
+def slice_words(
+    words: list[Word],
+    start: float,
+    end: float,
+    clip_start: float | None = None,
+    clip_end: float | None = None,
+) -> list[Word]:
+    margin = 0.02 if (clip_start is not None and clip_end is not None and clip_end - clip_start > 0.1) else 0.0
+    w_min = (clip_start + margin) if clip_start is not None else start
+    w_max = (clip_end - margin) if clip_end is not None else end
     out: list[Word] = []
     for word in words:
-        if word.end <= start or word.start >= end:
+        if word.end <= max(start, w_min) or word.start >= min(end, w_max):
             continue
         out.append(Word(word.word, max(0.0, word.start - start), min(end, word.end) - start))
     return out
 
 
-def transcript(cues: list[Cue], words: list[Word], max_chars: int = 90000) -> str:
+def _take_lines(lines: list[str], budget: int, from_end: bool = False) -> list[str]:
+    picked: list[str] = []
+    used = 0
+    seq = reversed(lines) if from_end else lines
+    for line in seq:
+        cost = len(line) + (1 if picked else 0)
+        if picked and used + cost > budget:
+            break
+        picked.append(line)
+        used += cost
+    if from_end:
+        picked.reverse()
+    return picked
+
+
+def transcript(cues: list[Cue], words: list[Word], max_chars: int = 180000) -> str:
     if cues:
-        lines = [f"[{format_timestamp(c.start)}] {c.text}" for c in cues]
-        text = "\n".join(lines)
+        raw_lines = [f"[{format_timestamp(c.start)}] {c.text}" for c in cues]
     else:
         chunks: list[list[Word]] = []
         current: list[Word] = []
@@ -254,15 +282,22 @@ def transcript(cues: list[Cue], words: list[Word], max_chars: int = 90000) -> st
             current.append(word)
         if current:
             chunks.append(current)
-        text = "\n".join(
+        raw_lines = [
             f"[{format_timestamp(chunk[0].start)}] " + " ".join(w.word for w in chunk)
             for chunk in chunks
-        )
-    if len(text) > max_chars:
-        head = text[: max_chars // 2]
-        tail = text[-max_chars // 4:]
-        text = head + "\n...[transcript truncated]...\n" + tail
-    return text
+        ]
+    text = "\n".join(raw_lines)
+    if len(text) <= max_chars or len(raw_lines) <= 3:
+        return text
+    marker = "...[transcript truncated]..."
+    budget = max(1, (max_chars - (len(marker) * 2 + 4)) // 3)
+    head = _take_lines(raw_lines, budget)
+    tail = _take_lines(raw_lines[len(head):], budget, from_end=True)
+    middle_pool = raw_lines[len(head) : len(raw_lines) - len(tail)]
+    mid_start = max(0, len(middle_pool) // 2 - max(1, len(head) // 2))
+    middle = _take_lines(middle_pool[mid_start:], budget)
+    sections = ["\n".join(part) for part in (head, middle, tail) if part]
+    return f"\n{marker}\n".join(sections)
 
 
 def parse_subtitle(path) -> tuple[list[Cue], list[Word]]:

@@ -155,6 +155,47 @@ satu dua tiga
         self.assertEqual(len(cues), 1)
         self.assertEqual([w.word for w in manual_words], ["satu", "dua", "tiga"])
 
+    def test_rolling_auto_vtt_does_not_duplicate_lines_in_transcript(self):
+        rolling_vtt = """WEBVTT
+
+00:00:01.000 --> 00:00:02.990
+Halo<00:00:01.500><c> semua</c>
+
+00:00:02.990 --> 00:00:03.000
+Halo semua
+
+00:00:03.000 --> 00:00:05.000
+Halo semua
+apa<00:00:03.600><c> kabar</c>
+"""
+        cues, words = parse_vtt(rolling_vtt)
+        text = transcript(cues, words)
+        self.assertEqual(text.count("Halo semua"), 1, text)
+        self.assertIn("apa kabar", text)
+
+    def test_long_transcript_keeps_middle_and_full_lines(self):
+        from core.subtitles import Cue
+
+        cues = [Cue(i * 10, i * 10 + 5, f"baris-{i:03d} isi pembicaraan penting") for i in range(100)]
+        text = transcript(cues, [], max_chars=600)
+        self.assertIn("baris-000", text)
+        self.assertIn("baris-099", text)
+        self.assertTrue(any(f"baris-{mid:03d}" in text for mid in range(40, 60)), text)
+        for line in text.splitlines():
+            if "truncated" not in line:
+                self.assertTrue(line.startswith("["), line)
+
+    def test_slice_words_excludes_padding_bleed_from_adjacent_sentences(self):
+        words = [
+            Word("sebelumnya", 29.60, 29.95),
+            Word("pembuka", 30.00, 30.40),
+            Word("penutup", 59.50, 59.95),
+            Word("sesudahnya", 60.05, 60.40),
+        ]
+        sliced = slice_words(words, 29.75, 60.25, clip_start=30.0, clip_end=60.0)
+        self.assertEqual([w.word for w in sliced], ["pembuka", "penutup"])
+        self.assertAlmostEqual(sliced[0].start, 0.25)
+
 
 if __name__ == "__main__":
     unittest.main()

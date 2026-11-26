@@ -6,6 +6,7 @@ import re
 import subprocess
 import textwrap
 import threading
+import time
 from pathlib import Path
 
 from .subtitles import Word, normalize_words
@@ -119,15 +120,15 @@ def ass_time(seconds: float) -> str:
 
 
 def ass_escape(text: str) -> str:
-    return (
+    cleaned = (
         (text or "")
-        .replace("\\", "\\\\")
         .replace("{", "(")
         .replace("}", ")")
         .replace("\r", " ")
         .replace("\n", " ")
         .strip()
     )
+    return re.sub(r"\\([Nnh])", r"/\1", cleaned)
 
 
 def _groups(words: list[Word]) -> list[list[Word]]:
@@ -268,8 +269,13 @@ def build_ass(
     credit_position: str = "bottom-center",
     credit_opacity: float = 1.0,
     translations: list[str] | None = None,
+    portrait: bool | None = None,
+    background: str = "black",
 ) -> str:
-    portrait = height >= width
+    if portrait is None:
+        portrait = height >= width
+    else:
+        width, height = (1080, 1920) if portrait else (1920, 1080)
     words = normalize_words(words)
     margin = 60 if portrait else 40
     accent = _ass_color(caption_color)
@@ -282,6 +288,7 @@ def build_ass(
     bold_flag = -1 if caption_bold else 0
     gadzhi_font = "Arial" if caption_font == "Arial Black" else caption_font
     gadzhi_base = rf"{{\fn{gadzhi_font}\b0\bord1\shad0\3c&H000000&}}"
+    top_margin = (610 if background == "facecam-top" else 220) if portrait else 70
     header = _ASS_HEADER.format(
         width=width,
         height=height,
@@ -294,7 +301,7 @@ def build_ass(
         alt_size=46 if portrait else 38,
         margin=margin,
         bottom_margin=300 if portrait else 80,
-        top_margin=220 if portrait else 70,
+        top_margin=top_margin,
         alt_margin=(300 if portrait else 80) + 96,
         hook_color=accent,
     )
@@ -305,40 +312,41 @@ def build_ass(
     if hook_text.strip():
         hook_end = min(max(0.5, hook_seconds), max(0.5, end_of_video)) if end_of_video else max(0.5, hook_seconds)
         escaped_hook = ass_escape(hook_text)
+        seam_pos = rf"{{\an5\pos({width // 2},{height // 2})}}" if (portrait and background == "split") else ""
         if hook_style == "retro-card":
             events.extend(_retro_card_events(hook_text, hook_end, width, height))
             retro_hook_end = hook_end
         elif hook_style == "card":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\fad(180,180)}}{escaped_hook}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{seam_pos}{{\\fad(180,180)}}{escaped_hook}"
             )
         elif hook_style == "quote":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c{accent}\\3c&H00141414&\\fad(180,180)}}“ {{\\c&H00FFFFFF&}}{escaped_hook}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{seam_pos}{{\\c{accent}\\3c&H00141414&\\fad(180,180)}}“ {{\\c&H00FFFFFF&}}{escaped_hook}"
             )
         elif hook_style == "accent-bar":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c&H00101210&\\3c{accent}\\fad(160,160)}}{escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{seam_pos}{{\\c&H00101210&\\3c{accent}\\fad(160,160)}}{escaped_hook.upper()}"
             )
         elif hook_style == "cinema":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\b0\\fsp6\\bord2\\shad2\\3c&H000000&\\fad(300,250)}}{escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{seam_pos}{{\\c&H00FFFFFF&\\b0\\fsp6\\bord2\\shad2\\3c&H000000&\\fad(300,250)}}{escaped_hook.upper()}"
             )
         elif hook_style == "neon":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\3c{accent}\\bord7\\blur10\\shad0\\fad(160,160)}}{escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{seam_pos}{{\\c&H00FFFFFF&\\3c{accent}\\bord7\\blur10\\shad0\\fad(160,160)}}{escaped_hook.upper()}"
             )
         elif hook_style == "breaking":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\c&H00FFFFFF&\\3c&H002222E0&\\fad(140,140)}}● {escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{seam_pos}{{\\c&H00FFFFFF&\\3c&H002222E0&\\fad(140,140)}}● {escaped_hook.upper()}"
             )
         elif hook_style == "impact":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{{\\c&H00FFFFFF&\\3c&H000000&\\bord10\\shad4\\fscx132\\fscy132\\t(0,180,\\fscx100\\fscy100)}}{escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{seam_pos}{{\\c&H00FFFFFF&\\3c&H000000&\\bord10\\shad4\\fscx132\\fscy132\\t(0,180,\\fscx100\\fscy100)}}{escaped_hook.upper()}"
             )
         elif hook_style == "tape":
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{{\\frz3\\c&H00101210&\\3c&H00D8F5FF&\\fad(160,160)}}{escaped_hook}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},HookBox,,0,0,0,,{seam_pos}{{\\frz3\\c&H00101210&\\3c&H00D8F5FF&\\fad(160,160)}}{escaped_hook}"
             )
         elif hook_style == "spotlight":
             hook_words = escaped_hook.upper().split()
@@ -347,11 +355,11 @@ def build_ass(
             rest = " ".join(hook_words[split_at:])
             styled = f"{{\\i1\\c{accent}\\bord5\\shad3\\fad(200,180)}}{lead}" + (f" {{\\c&H00FFFFFF&}}{rest}" if rest else "")
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{styled}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{seam_pos}{styled}"
             )
         else:
             events.append(
-                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{escaped_hook.upper()}"
+                f"Dialogue: 0,{ass_time(0)},{ass_time(hook_end)},Hook,,0,0,0,,{seam_pos}{escaped_hook.upper()}"
             )
 
     def _caption_mv(start_t: float, alt: bool = False) -> int:
@@ -368,6 +376,7 @@ def build_ass(
         group_end = group[-1].end + 0.12
         if next_start is not None and next_start > group[-1].start:
             group_end = min(group_end, next_start)
+        mv = _caption_mv(group[0].start)
         if caption_style == "karaoke":
             kf = []
             for i, w in enumerate(group):
@@ -379,7 +388,6 @@ def build_ass(
             if kf:
                 text = r"{\2c&H00FFFFFF&}" + _color_tag(accent) + " ".join(kf)
                 line_end = group_end if group_end > group[0].start else group[0].start + 0.06
-                mv = _caption_mv(group[0].start)
                 events.append(
                     f"Dialogue: 0,{ass_time(group[0].start)},{ass_time(line_end)},Caption,,0,0,{mv},,{text}"
                 )
@@ -391,7 +399,6 @@ def build_ass(
             end = group[index + 1].start if index + 1 < len(group) else group_end
             if end <= start:
                 end = min(start + 0.06, limit) if limit is not None and limit > start else start + 0.06
-            mv = _caption_mv(start)
             if caption_style == "box-highlight":
                 token = ass_escape(word.word)
                 if caption_uppercase:
@@ -472,12 +479,13 @@ def build_ass(
 
 _HW_ENCODERS = [
     ("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "23", "-b:v", "0"]),
-    ("h264_qsv", ["-c:v", "h264_qsv", "-global_quality", "23"]),
+    ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23"]),
     ("h264_amf", ["-c:v", "h264_amf", "-quality", "balanced", "-qp_i", "22", "-qp_p", "22"]),
 ]
 _CPU_ARGS = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21"]
 _ENCODER_LOCK = threading.RLock()
 _ENCODER_STATUS: dict[str, bool] = {}
+_ENCODER_COOLDOWN: dict[tuple[str, str], float] = {}
 _PROBE_CACHE: dict[tuple[str, str], bool] = {}
 _PROBE_ERRORS: dict[tuple[str, str], str] = {}
 _ENCODER_LIST_CACHE: dict[str, str] = {}
@@ -537,8 +545,6 @@ def detect_encoder(ffmpeg: str) -> str | None:
     return None
 
 
-_SHARP_POST = "unsharp=3:3:0.5:3:3:0.0"
-
 _FACECAM_COORDS = {
     "top-left": ("0", "0"),
     "top-right": ("iw-ow", "0"),
@@ -549,7 +555,7 @@ _FACECAM_COORDS = {
 
 def _portrait_chain(background: str, facecam_corner: str = "top-right") -> str:
     if background == "fill":
-        return f"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,{_SHARP_POST}"
+        return "scale=1080:1920:force_original_aspect_ratio=increase:flags=bicubic,crop=1080:1920"
     if background == "crop-left":
         return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-ow)*0.15:(ih-oh)/2"
     if background == "crop-right":
@@ -595,20 +601,34 @@ def _shot_segment_filter(shot, prefix: str = "", out: str = "", split_prefix: st
         end_tag = f"[{out}]" if out else ""
         return (
             f"{prefix}split=2[{sl}][{sr}];"
-            f"[{sl}]crop=trunc(iw/2):ih:0:0,scale=1080:960:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:960,{_SHARP_POST},setsar=1[{st}];"
-            f"[{sr}]crop=trunc(iw/2):ih:trunc(iw/2):0,scale=1080:960:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:960,{_SHARP_POST},setsar=1[{sb}];"
+            f"[{sl}]crop=trunc(iw/2):ih:0:0,scale=1080:960:force_original_aspect_ratio=increase:flags=bicubic,crop=1080:960,setsar=1[{st}];"
+            f"[{sr}]crop=trunc(iw/2):ih:trunc(iw/2):0,scale=1080:960:force_original_aspect_ratio=increase:flags=bicubic,crop=1080:960,setsar=1[{sb}];"
             f"[{st}][{sb}]vstack=inputs=2{end_tag}"
         )
     end_tag = f"[{out}]" if out else ""
     return (
         f"{prefix}crop={shot.crop_w}:{shot.crop_h}:{shot.crop_x}:{shot.crop_y},"
-        f"scale=1080:1920:flags=lanczos,{_SHARP_POST},setsar=1{end_tag}"
+        f"scale=1080:1920:flags=bicubic,setsar=1{end_tag}"
     )
+
+
+def _crop_expr(shots: list, attr: str) -> str:
+    expr = str(getattr(shots[-1], attr))
+    for shot in reversed(shots[:-1]):
+        expr = f"if(lt(t,{shot.end:.3f}),{getattr(shot, attr)},{expr})"
+    return expr
 
 
 def _reframe_chain(shots: list) -> str:
     if len(shots) == 1:
         return _shot_segment_filter(shots[0])
+    if all(s.mode == "crop" and (s.crop_w, s.crop_h) == (shots[0].crop_w, shots[0].crop_h) for s in shots):
+        x_expr = _crop_expr(shots, "crop_x")
+        y_expr = _crop_expr(shots, "crop_y")
+        return (
+            f"crop={shots[0].crop_w}:{shots[0].crop_h}:'{x_expr}':'{y_expr}',"
+            "scale=1080:1920:flags=bicubic,setsar=1"
+        )
     n = len(shots)
     split_labels = "".join(f"[rs{i}]" for i in range(n))
     parts = [f"split={n}{split_labels}"]
@@ -657,7 +677,7 @@ def _filter_complex(
             "scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"
         )
-    graph = f"[0:v]{chain}"
+    graph = f"[0:v]fps=fps='min(30,source_fps)',{chain}"
     if use_ass:
         graph += f",ass={ass_file}"
     if logo is not None:
@@ -699,7 +719,11 @@ def render_clip(
     reframe_shots: list | None = None,
     on_progress=None,
     on_log=None,
+    cancel_event: threading.Event | None = None,
+    on_process=None,
 ) -> Path:
+    if cancel_event and cancel_event.is_set():
+        raise RuntimeError("Dibatalkan")
     if not ffmpeg:
         raise RuntimeError("ffmpeg was not found. Put ffmpeg.exe in assets/ffmpeg or install it on PATH.")
     in_abs = input_path.resolve()
@@ -728,6 +752,8 @@ def render_clip(
                 credit_position=credit_position,
                 credit_opacity=credit_opacity,
                 translations=translations,
+                portrait=portrait,
+                background=background,
             ),
             encoding="utf-8",
         )
@@ -771,6 +797,8 @@ def render_clip(
         "192k",
         "-ar",
         "48000",
+        "-t",
+        f"{max(0.1, float(duration)):.3f}",
         "-pix_fmt",
         "yuv420p",
         "-movflags",
@@ -784,6 +812,10 @@ def render_clip(
     hardware = detect_encoder(ffmpeg)
     with _ENCODER_LOCK:
         probe_errors = {enc: msg for (bin_path, enc), msg in _PROBE_ERRORS.items() if bin_path == ffmpeg}
+        if hardware and _ENCODER_COOLDOWN.get((ffmpeg, hardware), 0.0) > 0:
+            if time.monotonic() >= _ENCODER_COOLDOWN[(ffmpeg, hardware)]:
+                _ENCODER_COOLDOWN.pop((ffmpeg, hardware), None)
+                _ENCODER_STATUS.pop(hardware, None)
         hw_failed = bool(hardware and _ENCODER_STATUS.get(hardware) is False)
     if hardware is None and on_log and probe_errors:
         detail = "; ".join(f"{name}: {error}" for name, error in probe_errors.items())
@@ -799,6 +831,7 @@ def render_clip(
 
     tmp_abs = out_abs.with_name(f".{out_abs.stem}.tmp{out_abs.suffix}")
     last_error = ""
+    failed_hw: list[str] = []
     try:
         for name, video_args in attempts:
             cmd = base_cmd[:-1] + video_args + [str(tmp_abs)]
@@ -815,9 +848,28 @@ def render_clip(
             tail: list[str] = []
             timed_out = threading.Event()
 
-            def _kill_on_timeout(proc=process, flag=timed_out) -> None:
-                flag.set()
+            def _kill_proc(proc=process) -> None:
+                if os.name == "nt" and getattr(proc, "pid", None):
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            capture_output=True,
+                            timeout=10,
+                            creationflags=_CREATE_NO_WINDOW,
+                        )
+                        return
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
                 proc.kill()
+
+            if on_process:
+                on_process(_kill_proc)
+            if cancel_event and cancel_event.is_set():
+                _kill_proc()
+
+            def _kill_on_timeout(flag=timed_out) -> None:
+                flag.set()
+                _kill_proc()
 
             watchdog = threading.Timer(1800, _kill_on_timeout)
             watchdog.daemon = True
@@ -825,6 +877,9 @@ def render_clip(
             try:
                 assert process.stdout is not None
                 for raw in process.stdout:
+                    if cancel_event and cancel_event.is_set():
+                        _kill_proc()
+                        break
                     line = raw.decode("utf-8", "replace").strip()
                     if not line:
                         continue
@@ -835,17 +890,22 @@ def render_clip(
                         on_progress(percent)
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                process.kill()
+                _kill_proc()
                 timed_out.set()
             finally:
                 watchdog.cancel()
+                if on_process:
+                    on_process(None)
                 if process.stdout:
                     process.stdout.close()
+            if cancel_event and cancel_event.is_set():
+                tmp_abs.unlink(missing_ok=True)
+                raise RuntimeError("Dibatalkan")
             if timed_out.is_set():
                 tmp_abs.unlink(missing_ok=True)
                 last_error = "ffmpeg timed out"
-                with _ENCODER_LOCK:
-                    _ENCODER_STATUS[name] = False
+                if name != "libx264":
+                    failed_hw.append(name)
                 if on_log:
                     on_log(f"{name} timed out, trying fallback")
                 continue
@@ -853,13 +913,16 @@ def render_clip(
                 tmp_abs.replace(out_abs)
                 with _ENCODER_LOCK:
                     _ENCODER_STATUS[name] = True
+                    for bad_name in failed_hw:
+                        _ENCODER_STATUS[bad_name] = False
+                        _ENCODER_COOLDOWN[(ffmpeg, bad_name)] = time.monotonic() + 300.0
                 if on_progress:
                     on_progress(100.0)
                 return output_path
             tmp_abs.unlink(missing_ok=True)
             last_error = "\n".join(tail[-8:]) or f"ffmpeg exited with {process.returncode}"
-            with _ENCODER_LOCK:
-                _ENCODER_STATUS[name] = False
+            if name != "libx264":
+                failed_hw.append(name)
             if on_log:
                 on_log(f"{name} failed, trying fallback")
         raise RuntimeError(f"ffmpeg failed: {last_error}")

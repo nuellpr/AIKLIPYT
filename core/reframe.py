@@ -166,15 +166,15 @@ def _choose_shot_framing(
 
     ranked = sorted(tracks, key=lambda t: (t.get("count", 1), t["fw"] * t["fh"]), reverse=True)
     t1, t2 = ranked[0], ranked[1]
-    if abs(t1["cx"] - t2["cx"]) + (t1["fw"] + t2["fw"]) * 0.5 <= crop_w * 0.85:
+    if len(tracks) == 2 and abs(t1["cx"] - t2["cx"]) + (t1["fw"] + t2["fw"]) * 0.5 <= crop_w * 0.85:
         x, y = _clamp_crop((t1["cx"] + t2["cx"]) / 2, (t1["cy"] + t2["cy"]) / 2)
         return "crop", x, y
 
-    m1, m2 = float(t1.get("motion", 0.0)), float(t2.get("motion", 0.0))
-    winner = t1 if m1 >= m2 else t2
-    max_m, min_m = max(m1, m2), min(m1, m2)
-    if max_m >= 1.35 * max(min_m, 1.0) and max_m >= 4.0:
-        x, y = _clamp_crop(winner["cx"], winner["cy"])
+    by_motion = sorted(tracks, key=lambda t: float(t.get("motion", 0.0)), reverse=True)
+    m_top = float(by_motion[0].get("motion", 0.0))
+    m_second = float(by_motion[1].get("motion", 0.0))
+    if m_top >= 1.35 * max(m_second, 1.0) and m_top >= 4.0:
+        x, y = _clamp_crop(by_motion[0]["cx"], by_motion[0]["cy"])
         return "crop", x, y
 
     if min(t1["cx"], t2["cx"]) < src_w * 0.48 and max(t1["cx"], t2["cx"]) > src_w * 0.52:
@@ -279,6 +279,7 @@ def analyze_reframe(input_path: Path, ffmpeg: str, on_log=None) -> list[ShotPlan
                     for idx in range(per_shot)
                 ]
 
+            step_frames = max(1, min(6, int(round((fps or 25.0) * 0.12))))
             tracks: list[dict] = []
             for ts in timestamps:
                 cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000.0)
@@ -288,18 +289,34 @@ def analyze_reframe(input_path: Path, ffmpeg: str, on_log=None) -> list[ShotPlan
                 fh_orig, fw_orig = frame.shape[:2]
                 if fw_orig > 640:
                     f_scale = fw_orig / 640.0
-                    small = cv2.resize(frame, (640, max(1, int(round(fh_orig / f_scale)))))
+                    small_size = (640, max(1, int(round(fh_orig / f_scale))))
+                    small = cv2.resize(frame, small_size)
                 else:
                     f_scale = 1.0
+                    small_size = None
                     small = frame
                 gray_small = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
                 faces = _detect_faces_yunet(detector, small, f_scale)
+                gray_next = None
+                if faces:
+                    for _ in range(step_frames - 1):
+                        if not cap.grab():
+                            break
+                    ok_next, frame_next = cap.read()
+                    if ok_next and frame_next is not None:
+                        small_next = cv2.resize(frame_next, small_size) if small_size else frame_next
+                        gray_next = cv2.cvtColor(small_next, cv2.COLOR_BGR2GRAY)
 
                 for face in faces:
                     fx, _fy, fw, fh = face["box"]
                     cx = fx + fw / 2.0
                     cy = float(face["eye_y"])
                     patch = _mouth_patch(cv2, gray_small, face["mouth_box"])
+                    pair_diff = (
+                        float(cv2.absdiff(patch, _mouth_patch(cv2, gray_next, face["mouth_box"])).mean())
+                        if gray_next is not None
+                        else None
+                    )
 
                     best = None
                     best_dist = float("inf")
@@ -317,8 +334,8 @@ def analyze_reframe(input_path: Path, ffmpeg: str, on_log=None) -> list[ShotPlan
                                 "fw": float(fw),
                                 "fh": float(fh),
                                 "count": 1,
-                                "motion": 0.0,
-                                "motion_samples": 0,
+                                "motion": pair_diff or 0.0,
+                                "motion_samples": 1 if pair_diff is not None else 0,
                                 "last_patch": patch,
                             }
                         )
@@ -329,8 +346,10 @@ def analyze_reframe(input_path: Path, ffmpeg: str, on_log=None) -> list[ShotPlan
                         best["fw"] = (best["fw"] * n + fw) / (n + 1)
                         best["fh"] = (best["fh"] * n + fh) / (n + 1)
                         best["count"] = n + 1
-                        if best["last_patch"] is not None:
+                        diff = pair_diff
+                        if diff is None and best["last_patch"] is not None:
                             diff = float(cv2.absdiff(best["last_patch"], patch).mean())
+                        if diff is not None:
                             ms = best["motion_samples"]
                             best["motion"] = (best["motion"] * ms + diff) / (ms + 1)
                             best["motion_samples"] = ms + 1

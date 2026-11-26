@@ -157,10 +157,14 @@
                   <p class="panel-kicker">PREVIEW</p>
                   <h2 id="previewRatio">9:16</h2>
                 </div>
-                <span class="tag" id="previewStyleTag">highlight</span>
+                <div class="row-actions">
+                  <button type="button" class="btn ghost small hidden" id="closeEmbedBtn">Tutup sampel</button>
+                  <span class="tag" id="previewStyleTag">highlight</span>
+                </div>
               </div>
               <div class="phone-wrap">
                 <div class="phone" id="previewPhone">
+                  <iframe class="phone-embed hidden" id="previewEmbed" title="Sampel klip YouTube" allow="autoplay; encrypted-media" allowfullscreen></iframe>
                   <img class="phone-bg hidden" id="previewBg" alt="">
                   <img class="phone-video-top hidden" id="previewThumbTop" alt="">
                   <img class="phone-video hidden" id="previewThumb" alt="">
@@ -188,7 +192,10 @@
                   <p class="panel-kicker">PROSES</p>
                   <h2 id="jobTitle">Status</h2>
                 </div>
-                <span class="tag" id="jobState">idle</span>
+                <div class="row-actions">
+                  <button type="button" class="btn danger small hidden" id="cancelJobBtn">Batalkan</button>
+                  <span class="tag" id="jobState">idle</span>
+                </div>
               </div>
               <div class="empty-state" id="jobEmpty">
                 <div class="orb"></div>
@@ -553,7 +560,7 @@
             <p class="eyebrow">TENTANG APLIKASI</p>
             <h1>AIKLIPYT</h1>
           </div>
-          <span class="tag" data-version-tag>v1.0.6</span>
+          <span class="tag" data-version-tag>v1.0.7</span>
         </div>
 
         <div class="about-grid">
@@ -575,7 +582,7 @@
           <section class="panel">
             <div class="panel-head"><h2>Detail</h2><span class="tag">edisi lokal</span></div>
             <dl class="about-meta">
-              <div><dt>Versi</dt><dd data-version>1.0.6</dd></div>
+              <div><dt>Versi</dt><dd data-version>1.0.7</dd></div>
               <div><dt>Lisensi</dt><dd>MIT</dd></div>
               <div><dt>Mesin</dt><dd>Python 3.11+</dd></div>
               <div><dt>Render</dt><dd>FFmpeg (lokal)</dd></div>
@@ -584,7 +591,7 @@
             </dl>
             <div class="about-links">
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT" target="_blank" rel="noreferrer">GitHub</a>
-              <a class="btn ghost small" data-release-link href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6" target="_blank" rel="noreferrer">Rilis v1.0.6</a>
+              <a class="btn ghost small" data-release-link href="https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.7" target="_blank" rel="noreferrer">Rilis v1.0.7</a>
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/LICENSE" target="_blank" rel="noreferrer">Lisensi MIT</a>
               <a class="btn ghost small" href="https://github.com/nuellpr/AIKLIPYT/blob/main/SECURITY.md" target="_blank" rel="noreferrer">Keamanan</a>
               <a class="btn ghost small" href="https://www.figma.com/design/P83HXlUX9HexU1lZJeWkRa" target="_blank" rel="noreferrer">Desain Figma</a>
@@ -604,7 +611,7 @@
     </main>
 
     <footer>
-      <span>AIKLIPYT <span data-version-tag>v1.0.6</span> · MIT · lokal, tanpa telemetri</span>
+      <span>AIKLIPYT <span data-version-tag>v1.0.7</span> · MIT · lokal, tanpa telemetri</span>
       <span>ffmpeg + yt-dlp + model AI pilihanmu</span>
     </footer>
   </div>

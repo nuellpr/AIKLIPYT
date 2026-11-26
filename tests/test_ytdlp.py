@@ -36,6 +36,21 @@ class PickSubtitleTests(unittest.TestCase):
         info = {"subtitles": {"fr": [{}], "en-GB": [{}]}, "automatic_captions": {}}
         self.assertEqual(pick_subtitle(info, ""), {"kind": "manual", "code": "en-GB"})
 
+    def test_auto_uses_video_metadata_language_before_alphabetical_fallback(self):
+        info = {
+            "language": "id",
+            "subtitles": {},
+            "automatic_captions": {"af": [{}], "ar": [{}], "en": [{}], "id": [{}]},
+        }
+        self.assertEqual(pick_subtitle(info, "auto"), {"kind": "auto", "code": "id"})
+
+    def test_auto_without_metadata_prefers_english_auto_over_afrikaans(self):
+        info = {
+            "subtitles": {},
+            "automatic_captions": {"af": [{}], "ar": [{}], "en": [{}]},
+        }
+        self.assertEqual(pick_subtitle(info, "auto"), {"kind": "auto", "code": "en"})
+
 
 class DownloadSectionTimeoutTests(unittest.TestCase):
     def test_timeout_kills_process_tree(self):
@@ -113,6 +128,7 @@ class DownloadSectionTimeoutTests(unittest.TestCase):
 
         fmt_default = seen_cmds[0][seen_cmds[0].index("-f") + 1]
         fmt_hi = seen_cmds[1][seen_cmds[1].index("-f") + 1]
+        self.assertNotIn("--force-keyframes-at-cuts", seen_cmds[0])
         self.assertIn("height<=1080", fmt_default)
         self.assertNotIn("height<=2160", fmt_default)
         self.assertIn("height<=2160", fmt_hi)

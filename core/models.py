@@ -18,32 +18,60 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class RequestFailure(Exception):
+    def __init__(self, kind: str, detail: str = "", code: int = 0):
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+        self.code = code
+
+
+def request_json(
+    url: str,
+    headers: dict[str, str],
+    data: bytes | None = None,
+    timeout: float = 25.0,
+    detail_limit: int = 500,
+):
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
+            raw = response.read(4_000_000)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(2000).decode("utf-8", "replace").strip()[:detail_limit]
+        exc.close()
+        raise RequestFailure("http", detail, exc.code) from exc
+    except urllib.error.URLError as exc:
+        raise RequestFailure("conn", str(exc.reason)) from exc
+    except TimeoutError as exc:
+        raise RequestFailure("timeout", "timeout") from exc
+    try:
+        return json.loads(raw.decode("utf-8", "replace"))
+    except ValueError as exc:
+        raise RequestFailure("json", "invalid json") from exc
+
+
 def list_models(base_url: str, key: str, timeout: float = 25.0) -> list[str]:
     base = (base_url or "").strip().rstrip("/")
     if not base.startswith(("http://", "https://")):
         raise ModelsError("Base URL harus diawali http:// atau https://")
     if not key:
         raise ModelsError("API key belum diisi")
-    request = urllib.request.Request(
-        base + "/models",
-        headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
-    )
     try:
-        with urllib.request.build_opener(_NoRedirect).open(request, timeout=timeout) as response:
-            raw = response.read(4_000_000)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read(300).decode("utf-8", "replace").strip()
-        exc.close()
-        message = f"Provider menolak permintaan (HTTP {exc.code})"
-        raise ModelsError(f"{message}: {detail}" if detail else message) from exc
-    except urllib.error.URLError as exc:
-        raise ModelsError(f"Tidak bisa menghubungi provider: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise ModelsError("Provider terlalu lama merespons") from exc
-
-    try:
-        payload = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
+        payload = request_json(
+            base + "/models",
+            {"Authorization": f"Bearer {key}", "Accept": "application/json"},
+            timeout=timeout,
+            detail_limit=300,
+        )
+    except RequestFailure as exc:
+        if exc.kind == "http":
+            message = f"Provider menolak permintaan (HTTP {exc.code})"
+            raise ModelsError(f"{message}: {exc.detail}" if exc.detail else message) from exc
+        if exc.kind == "conn":
+            raise ModelsError(f"Tidak bisa menghubungi provider: {exc.detail}") from exc
+        if exc.kind == "timeout":
+            raise ModelsError("Provider terlalu lama merespons") from exc
         raise ModelsError("Respons provider bukan JSON") from exc
 
     items = payload.get("data") if isinstance(payload, dict) else payload

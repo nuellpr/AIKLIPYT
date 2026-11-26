@@ -139,7 +139,6 @@ class SessionTests(unittest.TestCase):
                     {"id": "dQw4w9WgXcQ", "title": "Demo Video", "channel": "Demo", "duration": 60},
                     {"kind": "auto", "code": "en-orig"},
                     [Word("halo", 0.1, 0.5)],
-                    [],
                     "[0:00] halo",
                     [{"start": 0, "end": 30, "title": "Clip 1"}],
                     {"model": "gpt-4.1-mini", "usage": {"total_tokens": 99}},
@@ -154,6 +153,36 @@ class SessionTests(unittest.TestCase):
                 session.delete(sid)
                 self.assertEqual(session.list_all(), [])
                 self.assertFalse((outputs_dir / sid).exists())
+
+    def test_session_load_reconstructs_clips_from_mp4_when_clips_json_missing(self):
+        import tempfile
+        from unittest import mock
+        from core.subtitles import Word
+
+        with tempfile.TemporaryDirectory() as folder:
+            sessions_dir = Path(folder) / "sessions"
+            outputs_dir = Path(folder) / "outputs"
+            with (
+                mock.patch.object(session, "SESSIONS", sessions_dir),
+                mock.patch.object(session, "OUTPUTS", outputs_dir),
+            ):
+                created = session.create(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    {"id": "dQw4w9WgXcQ", "title": "Demo", "duration": 60},
+                    {"kind": "auto", "code": "id-orig"},
+                    [Word("halo", 0.1, 0.5)],
+                    "[0:00] halo",
+                    [{"start": 5, "end": 25, "title": "Klip Satu", "description": "Desc #tag"}],
+                    {"model": "m", "usage": {}},
+                )
+                sid = created["id"]
+                mp4 = outputs_dir / sid / "clip_01.mp4"
+                mp4.write_bytes(b"v" * 2000)
+                loaded = session.load(sid)
+                self.assertEqual(len(loaded["clips"]), 1)
+                self.assertEqual(loaded["clips"][0]["file"], "clip_01.mp4")
+                self.assertEqual(loaded["clips"][0]["title"], "Klip Satu")
+                self.assertEqual(loaded["clips"][0]["description"], "Desc #tag")
 
 
 if __name__ == "__main__":

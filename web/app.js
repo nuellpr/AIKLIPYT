@@ -1,23 +1,7 @@
-const LANGS = [
+let LANGS = [
   ["auto", "Auto / bahasa asli"],
   ["en", "English"],
   ["id", "Bahasa Indonesia"],
-  ["es", "Español"],
-  ["pt", "Português"],
-  ["fr", "Français"],
-  ["de", "Deutsch"],
-  ["it", "Italiano"],
-  ["nl", "Nederlands"],
-  ["pl", "Polski"],
-  ["ru", "Русский"],
-  ["tr", "Türkçe"],
-  ["ar", "العربية"],
-  ["hi", "हिन्दी"],
-  ["th", "ไทย"],
-  ["vi", "Tiếng Việt"],
-  ["ja", "日本語"],
-  ["ko", "한국어"],
-  ["zh", "中文"],
 ];
 
 const BASE_URLS = {
@@ -39,8 +23,12 @@ const state = {
   highlights: [],
   sessionId: null,
   selected: new Set(),
+  overrides: {},
   jobTimer: null,
+  activeJobId: null,
   busyJob: false,
+  settingsDirty: false,
+  currentView: "create",
   detail: null,
   toastTimer: null,
   autoOpenSessionId: null,
@@ -109,11 +97,22 @@ function setBusy(button, busy, text) {
 }
 
 function populateLanguages() {
-  const options = LANGS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  const options = LANGS.map(([value, label]) => `<option value="${esc(value)}">${esc(label)}</option>`).join("");
   ["subtitleLanguage", "outputLanguage", "settingsOutputLanguage"].forEach((id) => {
     const select = $(id);
-    if (select) select.innerHTML = options;
+    if (!select) return;
+    const prev = select.value;
+    select.innerHTML = options;
+    if (prev && [...select.options].some((opt) => opt.value === prev)) select.value = prev;
   });
+}
+
+function markSettingsDirty(dirty = true) {
+  state.settingsDirty = Boolean(dirty);
+  const btn = $("saveSettings");
+  if (btn && !btn.disabled) {
+    btn.textContent = state.settingsDirty ? "Simpan perubahan ●" : "Simpan";
+  }
 }
 
 function updateAssetStatus() {
@@ -251,6 +250,7 @@ function applySettings() {
   updateBrandPreview();
   $("ffmpegPath").value = config.paths?.ffmpeg || "";
   $("denoPath").value = config.paths?.deno || "";
+  markSettingsDirty(false);
   updateAssetStatus();
   updateLivePreview();
 }
@@ -274,6 +274,36 @@ function extractYoutubeId(raw) {
   } catch {
     return "";
   }
+}
+
+function closeSampleEmbed() {
+  const embed = $("previewEmbed");
+  if (embed) {
+    if (embed.getAttribute("src")) embed.src = "about:blank";
+    embed.removeAttribute("src");
+    embed.classList.add("hidden");
+  }
+  $("closeEmbedBtn")?.classList.add("hidden");
+}
+
+function openSampleEmbed(index) {
+  const clip = state.highlights[index];
+  if (!clip) return;
+  const videoId = extractYoutubeId($("url")?.value) || extractYoutubeId(state.detail?.url);
+  if (!videoId) {
+    toast("URL YouTube tidak ditemukan untuk memutar sampel.", true);
+    return;
+  }
+  const start = Math.max(0, Math.floor(Number(clip.start) || 0));
+  const end = Math.max(start + 1, Math.ceil(Number(clip.end) || start + 1));
+  const embed = $("previewEmbed");
+  if (!embed) return;
+  embed.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?start=${start}&end=${end}&autoplay=1&rel=0`;
+  embed.classList.remove("hidden");
+  $("closeEmbedBtn")?.classList.remove("hidden");
+  $("previewHook").textContent = clip.hook_text || clip.title || "Momen terbaik.";
+  $("previewMeta").textContent = `AI PICK · ${fmtTime(clip.start)}–${fmtTime(clip.end)}`;
+  $("previewPhone")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function updateLivePreview(overrideThumb) {
@@ -378,6 +408,10 @@ function setPipeStep(doneCount) {
 
 async function loadState() {
   const data = await api("/api/state");
+  if (Array.isArray(data.languages) && data.languages.length) {
+    LANGS = data.languages;
+    populateLanguages();
+  }
   state.config = data.config;
   state.cookies = data.cookies;
   state.assets = data.assets;
@@ -390,6 +424,23 @@ async function loadState() {
 function route() {
   const requested = (location.hash || "#create").slice(1);
   const view = ["create", "library", "settings", "about"].includes(requested) ? requested : "create";
+  if (state.currentView === "settings" && view !== "settings" && state.settingsDirty) {
+    const oldBase = (state.config?.ai?.baseUrl || "").trim().replace(/\/+$/, "");
+    const newBase = $("baseUrl").value.trim().replace(/\/+$/, "");
+    const customEmpty = $("model").value === "__custom__" && !selectedModel();
+    if (!customEmpty && (newBase === oldBase || Boolean($("apiKey").value.trim()))) {
+      saveSettings({ silent: true });
+    } else {
+      toast("Klik Simpan di Pengaturan untuk menerapkan Base URL atau model baru.", true);
+    }
+  }
+  if (view === "settings" && !state.settingsDirty && state.config) {
+    applySettings();
+  }
+  if (view !== "create") {
+    closeSampleEmbed();
+  }
+  state.currentView = view;
   document.querySelectorAll(".view").forEach((node) => node.classList.add("hidden"));
   $(`view-${view}`).classList.remove("hidden");
   document.querySelectorAll(".tab").forEach((tab) => {
@@ -416,6 +467,7 @@ function showJob(title) {
   $("jobPercent").textContent = "0%";
   $("jobLog").textContent = "";
   $("jobState").textContent = "jalan";
+  $("cancelJobBtn")?.classList.remove("hidden");
 }
 
 function updateJob(job) {
@@ -424,7 +476,15 @@ function updateJob(job) {
   $("jobProgress").style.width = `${percent}%`;
   $("jobPercent").textContent = `${Math.round(percent)}%`;
   $("jobLog").textContent = (job.log || []).join("\n");
-  $("jobState").textContent = job.status === "running" ? "jalan" : job.status === "done" ? "selesai" : "gagal";
+  $("jobState").textContent =
+    job.status === "running"
+      ? "jalan"
+      : job.status === "done"
+        ? "selesai"
+        : job.status === "cancelled"
+          ? "dibatalkan"
+          : "gagal";
+  $("cancelJobBtn")?.classList.toggle("hidden", job.status !== "running");
   if (job.error) {
     const node = $("jobError");
     node.textContent = job.error;
@@ -435,6 +495,8 @@ function updateJob(job) {
 function pollJob(jobId, onDone, onFail) {
   clearTimeout(state.jobTimer);
   state.jobTimer = null;
+  state.activeJobId = jobId;
+  $("cancelJobBtn")?.classList.remove("hidden");
   let finished = false;
   const tick = async () => {
     if (finished) return;
@@ -449,9 +511,12 @@ function pollJob(jobId, onDone, onFail) {
       if (job.status !== "running") {
         finished = true;
         state.jobTimer = null;
+        state.activeJobId = null;
+        $("cancelJobBtn")?.classList.add("hidden");
         if (job.status === "done") onDone(job);
         else {
-          toast(job.error || "Proses gagal", true);
+          if (job.status === "cancelled") toast("Proses dibatalkan");
+          else toast(job.error || "Proses gagal", true);
           if (onFail) onFail(job);
         }
         return;
@@ -460,6 +525,8 @@ function pollJob(jobId, onDone, onFail) {
     } catch (error) {
       finished = true;
       state.jobTimer = null;
+      state.activeJobId = null;
+      $("cancelJobBtn")?.classList.add("hidden");
       toast(error.message, true);
       if (onFail) onFail();
     }
@@ -467,11 +534,26 @@ function pollJob(jobId, onDone, onFail) {
   tick();
 }
 
+async function cancelActiveJob() {
+  if (!state.activeJobId) return;
+  const button = $("cancelJobBtn");
+  setBusy(button, true, "Batal…");
+  try {
+    const { job } = await api("/api/jobs/cancel", "POST", { jobId: state.activeJobId });
+    updateJob(job);
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
 function applyHighlightResult(job, fallbackRequested = 0) {
   state.busyJob = false;
   setBusy($("findBtn"), false);
   state.sessionId = job.result.sessionId;
   state.highlights = job.result.highlights || [];
+  state.overrides = {};
   const recommended = state.highlights
     .map((clip, index) => ({ clip, index }))
     .filter(({ clip }) => scoreOf(clip) >= 7)
@@ -540,11 +622,13 @@ async function findHighlights() {
     return;
   }
   const button = $("findBtn");
+  closeSampleEmbed();
   setBusy(button, true, "Mencari…");
   state.busyJob = true;
   $("resultsPanel").classList.add("hidden");
   state.highlights = [];
   state.selected = new Set();
+  state.overrides = {};
   $("previewHook").textContent = "Ini yang tidak dibicarakan.";
   $("previewMeta").textContent = "AI PICK · —:—";
   showJob("Mencari highlight");
@@ -611,22 +695,29 @@ function renderHighlights() {
         .map(([key, label]) => `${label} ${Math.round(Number(breakdown[key]))}`)
         .join(" · ");
       return `
-        <label class="highlight ${active ? "" : "is-off"}" data-index="${index}">
+        <div class="highlight ${active ? "" : "is-off"}" data-index="${index}">
           <input type="checkbox" data-index="${index}" ${active ? "checked" : ""} aria-label="Pilih klip ${index + 1}">
           <div>
             <h3><span class="rank">#${position + 1}</span> ${esc(clip.title || `Klip ${index + 1}`)}</h3>
-            <div class="meta">
-              <span>${fmtTime(clip.start)} – ${fmtTime(clip.end)}</span>
-              <span>${Math.round(clip.duration || 0)} detik</span>
-              <span>klip ${index + 1}</span>
+            <div class="hl-meta-row">
+              <div class="meta" data-meta-index="${index}">
+                <span>${fmtTime(clip.start)} – ${fmtTime(clip.end)}</span>
+                <span>${Math.round(clip.duration || 0)} detik</span>
+                <span>klip ${index + 1}</span>
+              </div>
+              <button type="button" class="btn ghost small hl-sample-btn" data-preview-clip="${index}">▶ Putar sampel</button>
             </div>
-            ${clip.hook_text ? `<p class="hook">"${esc(clip.hook_text)}"</p>` : ""}
             ${clip.description ? `<p class="desc">${esc(clip.description)}</p>` : ""}
             ${dims ? `<p class="score-breakdown">${dims}</p>` : ""}
             ${clip.score_reason ? `<p class="score-reason">${esc(clip.score_reason)}</p>` : ""}
+            <div class="hl-edit">
+              <label><span>Mulai (dtk)</span><input type="number" step="0.1" min="0" data-edit="start" data-index="${index}" value="${Number(clip.start ?? 0)}"></label>
+              <label><span>Selesai (dtk)</span><input type="number" step="0.1" min="1" data-edit="end" data-index="${index}" value="${Number(clip.end ?? 0)}"></label>
+              <label class="hl-edit-wide"><span>Hook pembuka</span><input type="text" maxlength="120" data-edit="hook_text" data-index="${index}" value="${esc(clip.hook_text || "")}" placeholder="Teks hook di awal klip…"></label>
+            </div>
           </div>
           <div class="score ${grade.cls}">${score.toFixed(1)}<small>${grade.label}</small></div>
-        </label>`;
+        </div>`;
     })
     .join("");
   updateRenderButton();
@@ -648,6 +739,7 @@ async function renderSelected() {
     return;
   }
   if (!state.sessionId || state.selected.size === 0) return;
+  closeSampleEmbed();
   const button = $("renderBtn");
   setBusy(button, true, "Merender…");
   state.busyJob = true;
@@ -657,6 +749,7 @@ async function renderSelected() {
       sessionId: state.sessionId,
       indices: [...state.selected].sort((a, b) => a - b),
       overwrite: true,
+      overrides: state.overrides,
     });
     pollJob(jobId, finishRender, () => {
       state.busyJob = false;
@@ -723,12 +816,17 @@ async function openSession(sessionId) {
   $("clipGrid").innerHTML = clips.length
     ? clips
       .map(
-        (clip) => `
+        (clip, idx) => `
         <article class="clip-card">
           <video controls preload="metadata" src="/api/media/${encodeURIComponent(sessionId)}/${encodeURIComponent(clip.file)}"></video>
           <div class="clip-info">
             <h4>${esc(clip.title || clip.file)}</h4>
             <div class="meta">${fmtTime(clip.start)} → ${fmtTime(clip.end)} · ${Math.round(clip.duration || 0)} dtk</div>
+            ${clip.description ? `<p class="clip-desc">${esc(clip.description)}</p>` : ""}
+            <div class="clip-actions">
+              <button type="button" class="btn ghost small" data-copy-clip="${idx}">Salin caption</button>
+              <a class="btn ghost small" href="/api/media/${encodeURIComponent(sessionId)}/${encodeURIComponent(clip.file)}" download="${esc(clip.file)}">Unduh MP4</a>
+            </div>
           </div>
         </article>`
       )
@@ -771,12 +869,14 @@ async function refreshModels() {
   }
 }
 
-async function saveSettings() {
+async function saveSettings({ silent = false } = {}) {
   const button = $("saveSettings");
   const model = selectedModel();
   if ($("model").value === "__custom__" && !model) {
-    toast("Isi nama model custom dulu", true);
-    $("modelCustom").focus();
+    if (!silent) {
+      toast("Isi nama model custom dulu", true);
+      $("modelCustom").focus();
+    }
     return;
   }
   const hadKey = Boolean(state.config?.ai?.hasKey);
@@ -826,15 +926,18 @@ async function saveSettings() {
     state.assets = data.assets;
     applySettings();
     updateCookieStatus();
-    toast(
-      hadKey && !key && !data.config?.ai?.hasKey
-        ? "Pengaturan disimpan — isi API key baru untuk Base URL ini"
-        : "Pengaturan disimpan",
-    );
+    if (!silent) {
+      toast(
+        hadKey && !key && !data.config?.ai?.hasKey
+          ? "Pengaturan disimpan — isi API key baru untuk Base URL ini"
+          : "Pengaturan disimpan",
+      );
+    }
   } catch (error) {
     toast(error.message, true);
   } finally {
     setBusy(button, false);
+    markSettingsDirty(state.settingsDirty);
   }
 }
 
@@ -871,7 +974,11 @@ function bindEvents() {
     $("cookieEditor").classList.remove("hidden");
     $("cookieEditor").scrollIntoView({ behavior: "smooth", block: "center" });
   });
-  $("url").addEventListener("input", () => updateLivePreview());
+  $("url").addEventListener("input", () => {
+    closeSampleEmbed();
+    updateLivePreview();
+  });
+  $("closeEmbedBtn")?.addEventListener("click", closeSampleEmbed);
   $("previewThumb").addEventListener("error", () => {
     $("previewThumb").classList.add("hidden");
     $("previewThumbTop")?.classList.add("hidden");
@@ -914,6 +1021,47 @@ function bindEvents() {
   $("cookieFile").addEventListener("change", async (event) => {
     const file = event.target.files?.[0];
     if (file) $("cookieText").value = await file.text();
+  });
+
+  $("highlightList").addEventListener("click", (event) => {
+    const previewBtn = event.target.closest("[data-preview-clip]");
+    if (previewBtn) {
+      openSampleEmbed(Number(previewBtn.dataset.previewClip));
+      return;
+    }
+    if (event.target.closest("input, button, a, label")) return;
+    const card = event.target.closest(".highlight[data-index]");
+    const checkbox = card?.querySelector('input[type="checkbox"]');
+    if (!checkbox) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  $("highlightList").addEventListener("input", (event) => {
+    const field = event.target.dataset?.edit;
+    if (!field) return;
+    const idx = Number(event.target.dataset.index);
+    const clip = state.highlights[idx];
+    if (!clip) return;
+    const patch = state.overrides[idx] || {};
+    if (field === "hook_text") {
+      clip.hook_text = event.target.value;
+      patch.hook_text = event.target.value;
+      $("previewHook").textContent = clip.hook_text || clip.title || "Momen terbaik.";
+    } else if (field === "start" || field === "end") {
+      const val = Number(event.target.value);
+      if (Number.isFinite(val) && val >= 0) {
+        clip[field] = val;
+        patch[field] = val;
+        if (clip.end > clip.start) clip.duration = Math.round((clip.end - clip.start) * 100) / 100;
+        const meta = document.querySelector(`[data-meta-index="${idx}"]`);
+        if (meta) {
+          meta.innerHTML = `<span>${fmtTime(clip.start)} – ${fmtTime(clip.end)}</span><span>${Math.round(clip.duration || 0)} detik</span><span>klip ${idx + 1}</span>`;
+        }
+        $("previewMeta").textContent = `AI PICK · ${fmtTime(clip.start)}–${fmtTime(clip.end)}`;
+      }
+    }
+    state.overrides[idx] = patch;
   });
 
   $("highlightList").addEventListener("change", (event) => {
@@ -980,6 +1128,7 @@ function bindEvents() {
     }
     state.sessionId = session.id;
     state.highlights = session.highlights;
+    state.overrides = {};
     if (session.url) $("url").value = session.url;
     const rendered = new Set((session.clips || []).map((clip) => Number(clip.index)));
     const remaining = state.highlights.map((_, index) => index).filter((index) => !rendered.has(index));
@@ -998,7 +1147,23 @@ function bindEvents() {
     if (state.detail) removeSession(state.detail.id);
   });
 
-  $("saveSettings").addEventListener("click", saveSettings);
+  $("clipGrid").addEventListener("click", async (event) => {
+    const copyBtn = event.target.closest("[data-copy-clip]");
+    if (!copyBtn) return;
+    const clip = state.detail?.clips?.[Number(copyBtn.dataset.copyClip)];
+    if (!clip) return;
+    const text = [clip.title, clip.description].filter(Boolean).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text || clip.file || "");
+      toast("Judul & deskripsi disalin");
+    } catch {
+      toast("Gagal menyalin ke clipboard", true);
+    }
+  });
+  $("cancelJobBtn")?.addEventListener("click", cancelActiveJob);
+  $("saveSettings").addEventListener("click", () => saveSettings());
+  $("settingsForm")?.addEventListener("input", () => markSettingsDirty(true));
+  $("settingsForm")?.addEventListener("change", () => markSettingsDirty(true));
   $("clearApiKey")?.addEventListener("click", async () => {
     if (!confirm("Hapus API key tersimpan?")) return;
     try {
@@ -1017,6 +1182,7 @@ function bindEvents() {
     const url = BASE_URLS[$("baseUrlPreset").value];
     if (url) $("baseUrl").value = url;
     else $("baseUrl").focus();
+    markSettingsDirty(true);
   });
 }
 
@@ -1053,7 +1219,10 @@ function buildPositionGrids() {
       button.dataset.pos = value;
       button.title = label;
       button.setAttribute("aria-label", label);
-      button.addEventListener("click", () => setGridValue(id, value));
+      button.addEventListener("click", () => {
+        setGridValue(id, value);
+        markSettingsDirty(true);
+      });
       grid.appendChild(button);
     }
     setGridValue(id, grid.dataset.position || fallback);
@@ -1128,6 +1297,7 @@ function bindBranding() {
       const { path } = await api("/api/watermark", "POST", { name: file.name, data: dataUrl });
       $("watermark").value = path;
       watermarkPreview = dataUrl;
+      markSettingsDirty(true);
       updateBrandPreview();
       toast("Watermark diunggah. Klik Simpan untuk menyimpan setelan.");
     } catch (error) {
@@ -1140,6 +1310,7 @@ function bindBranding() {
   $("clearWatermark").addEventListener("click", () => {
     $("watermark").value = "";
     watermarkPreview = "";
+    markSettingsDirty(true);
     updateBrandPreview();
   });
   $("watermark").addEventListener("input", () => {
@@ -1335,6 +1506,7 @@ function buildStylePickers() {
       const card = event.target.closest(".mode-card");
       if (!card) return;
       $("background").value = card.dataset.value;
+      markSettingsDirty(true);
       syncStylePickers();
     });
   }
@@ -1344,6 +1516,7 @@ function buildStylePickers() {
       const btn = event.target.closest(".seg-btn");
       if (!btn) return;
       $("facecamCorner").value = btn.dataset.corner;
+      markSettingsDirty(true);
       syncStylePickers();
     });
   }
@@ -1353,6 +1526,7 @@ function buildStylePickers() {
       const btn = event.target.closest(".seg-btn");
       if (!btn) return;
       setCaptionCaseMode(btn.dataset.mode);
+      markSettingsDirty(true);
       syncStylePickers();
     });
   }
@@ -1367,6 +1541,7 @@ function buildStylePickers() {
       const card = event.target.closest(".style-card");
       if (!card) return;
       $("captionStyle").value = card.dataset.value;
+      markSettingsDirty(true);
       syncStylePickers();
     });
   }
@@ -1381,6 +1556,7 @@ function buildStylePickers() {
       const card = event.target.closest(".style-card");
       if (!card) return;
       $("hookStyle").value = card.dataset.value;
+      markSettingsDirty(true);
       syncStylePickers();
     });
   }

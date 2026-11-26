@@ -105,6 +105,21 @@ class ReframeUnitTests(unittest.TestCase):
         )
         self.assertEqual(mode4, "split")
 
+        # 3 speakers where 3rd slightly smaller face is the active speaker -> lock onto 3rd face
+        mode5, x5, _ = _choose_shot_framing(
+            [
+                {"cx": 320.0, "cy": 420.0, "fw": 180.0, "fh": 180.0, "count": 4, "motion": 1.4},
+                {"cx": 960.0, "cy": 420.0, "fw": 175.0, "fh": 175.0, "count": 4, "motion": 1.6},
+                {"cx": 1600.0, "cy": 420.0, "fw": 160.0, "fh": 160.0, "count": 4, "motion": 10.5},
+            ],
+            1920,
+            1080,
+            608,
+            1080,
+        )
+        self.assertEqual(mode5, "crop")
+        self.assertGreater(x5, 1200)
+
     def test_merge_similar_shots(self):
         shots = [
             ShotPlan(0.0, 2.0, "crop", 100, 0, 608, 1080),
@@ -119,7 +134,8 @@ class ReframeUnitTests(unittest.TestCase):
     def test_reframe_chain_shapes(self):
         one_crop = _reframe_chain([ShotPlan(0.0, 2.0, "crop", 100, 0, 608, 1080)])
         self.assertIn("crop=608:1080:100:0", one_crop)
-        self.assertIn("flags=lanczos", one_crop)
+        self.assertIn("flags=bicubic", one_crop)
+        self.assertNotIn("unsharp", one_crop)
 
         one_split = _reframe_chain([ShotPlan(0.0, 2.0, "split", 0, 0, 608, 1080)])
         self.assertIn("vstack=inputs=2", one_split)
@@ -134,6 +150,14 @@ class ReframeUnitTests(unittest.TestCase):
         self.assertIn("trim=start=1.000:end=2.000", mixed)
         self.assertIn("trim=start=2.000,setpts=PTS-STARTPTS", mixed)
         self.assertIn("concat=n=3:v=1:a=0", mixed)
+
+        crops_only = _reframe_chain([
+            ShotPlan(0.0, 1.5, "crop", 40, 0, 608, 1080),
+            ShotPlan(1.5, 3.0, "crop", 1200, 20, 608, 1080),
+        ])
+        self.assertNotIn("split=", crops_only)
+        self.assertNotIn("concat=", crops_only)
+        self.assertIn("lt(t,1.500)", crops_only)
 
     def test_analyze_reframe_falls_back_cleanly_without_cv2(self):
         real_import = builtins.__import__

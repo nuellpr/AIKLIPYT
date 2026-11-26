@@ -120,11 +120,22 @@ def pick_subtitle(info: dict, language: str | None) -> dict | None:
 
     if original:
         return {"kind": "auto", "code": original}
+    video_lang = str(info.get("language") or "").strip()
+    if video_lang and video_lang.lower() not in ("auto", "und", "zxx"):
+        manual_vid = match_code(manual, video_lang)
+        if manual_vid:
+            return {"kind": "manual", "code": manual_vid}
+        auto_vid = auto_for(video_lang)
+        if auto_vid:
+            return {"kind": "auto", "code": auto_vid}
     en_manual = match_code(manual, "en")
     if en_manual:
         return {"kind": "manual", "code": en_manual}
     if manual:
         return {"kind": "manual", "code": sorted(manual)[0]}
+    en_auto = auto_for("en")
+    if en_auto:
+        return {"kind": "auto", "code": en_auto}
     if automatic:
         return {"kind": "auto", "code": sorted(automatic)[0]}
     return None
@@ -191,7 +202,11 @@ def download_section(
     on_line=None,
     timeout: int = 900,
     max_height: int = 1080,
+    cancel_event: threading.Event | None = None,
+    on_process=None,
 ) -> Path:
+    if cancel_event and cancel_event.is_set():
+        raise YtdlpError("Dibatalkan")
     workdir.mkdir(parents=True, exist_ok=True)
     if max_height > 1080:
         fmt = (
@@ -208,7 +223,6 @@ def download_section(
         fmt,
         "--download-sections",
         f"*{_clock(start)}-{_clock(end)}",
-        "--force-keyframes-at-cuts",
         "--merge-output-format",
         "mp4",
         "-o",
@@ -227,7 +241,7 @@ def download_section(
     assert process.stdout is not None
 
     def _kill_tree() -> None:
-        if os.name == "nt":
+        if os.name == "nt" and getattr(process, "pid", None):
             try:
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(process.pid)],
@@ -240,6 +254,11 @@ def download_section(
                 pass
         process.kill()
 
+    if on_process:
+        on_process(_kill_tree)
+    if cancel_event and cancel_event.is_set():
+        _kill_tree()
+
     def _kill_on_timeout() -> None:
         timed_out.set()
         _kill_tree()
@@ -249,6 +268,9 @@ def download_section(
     watchdog.start()
     try:
         for raw in process.stdout:
+            if cancel_event and cancel_event.is_set():
+                _kill_tree()
+                break
             line = raw.decode("utf-8", "replace").rstrip()
             if not line:
                 continue
@@ -263,8 +285,12 @@ def download_section(
         raise YtdlpError("Timed out downloading video section")
     finally:
         watchdog.cancel()
+        if on_process:
+            on_process(None)
         if process.stdout:
             process.stdout.close()
+    if cancel_event and cancel_event.is_set():
+        raise YtdlpError("Dibatalkan")
     if timed_out.is_set():
         raise YtdlpError("Timed out downloading video section")
     if process.returncode != 0:

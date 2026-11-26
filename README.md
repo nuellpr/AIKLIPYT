@@ -5,11 +5,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/versi-v1.0.6-blue" alt="Versi v1.0.6">
+  <img src="https://img.shields.io/badge/versi-v1.0.7-blue" alt="Versi v1.0.7">
   <img src="https://img.shields.io/badge/lisensi-MIT-green" alt="Lisensi MIT">
   <img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/Windows-10%2F11-blue" alt="Windows 10/11">
-  <img src="https://img.shields.io/badge/tests-128%20passing-brightgreen" alt="128 test lulus">
+  <img src="https://img.shields.io/badge/tests-145%20passing-brightgreen" alt="145 test lulus">
 </p>
 
 **Studio klip YouTube yang berjalan di komputermu sendiri.** Tempel URL, biarkan AI
@@ -21,7 +21,7 @@ Ditulis ulang dari nol berdasarkan perilaku yang diamati dari **YT Short Clipper
 (v2.0.7-beta) lewat analisis REA. Ini **bukan salinan** kode atau aset aplikasi asli —
 yang sama hanya alur kerjanya; implementasinya bersih dan terbuka.
 
-**Rilis terbaru:** [v1.0.6](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6)
+**Rilis terbaru:** [v1.0.7](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.7)
 · [Riwayat perubahan](CHANGELOG.md) · [Lisensi MIT](LICENSE) · [Kebijakan Keamanan](SECURITY.md)
 
 ## Daftar isi
@@ -194,15 +194,16 @@ AIKLIPYT/
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Saat ini **128 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
+Saat ini **145 test** lulus. Test render memakai ffmpeg untuk membuat video sintetis
 dan memverifikasi output 1080x1920, termasuk 14 gaya subtitle, 11 gaya hook, 8 mode
 latar (termasuk auto-reframe OpenCV YuNet untuk mode `fill`), pilihan font/bold/kapital,
-dan validasi keamanan server. Test DPAPI hanya berjalan di Windows.
+prefetch unduhan paralel, pembatalan job aktif, dan validasi keamanan server. Test DPAPI hanya berjalan di Windows.
 
 ## Rilis
 
 | Versi | Tanggal | Catatan |
 |---|---|---|
+| [v1.0.7](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.7) | 2026-11-26 | Render ~2,1x lebih cepat (`-c copy` section, prefetch paralel, QSV `veryfast` 30 FPS), pemutar sampel `▶ Putar sampel`, tombol `Batalkan`, edit highlight pra-render, perbaikan 16 temuan audit, 145 test |
 | [v1.0.6](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.6) | 2026-11-24 | Smart auto-reframe YuNet + Lanczos/unsharp (`fill`), 8 mode framing, hook Kartu Retro, gaya huruf 4 arah, perbaikan 18 temuan audit, 128 test |
 | [v1.0.5](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.5) | 2026-11-21 | 10 gaya hook, carousel kartu beranimasi, live preview thumbnail YouTube, perbaikan tumpang tindih subtitle & pengerasan keamanan, LICENSE MIT & SECURITY.md |
 | [v1.0.4](https://github.com/nuellpr/AIKLIPYT/releases/tag/v1.0.4) | 2026-11-19 | Pilihan font subtitle & toggle Bold, perbaikan lookup `assets/ffmpeg`, render ASS & UI |
@@ -218,7 +219,8 @@ Detail lengkap ada di [CHANGELOG.md](CHANGELOG.md).
 - **"ffmpeg tidak ditemukan"** — taruh `ffmpeg.exe` di `assets\ffmpeg\` atau isi path
   absolut di Pengaturan.
 - **HTTP 403 / "Sign in to confirm you're not a bot"** — cookies hilang atau
-  kedaluwarsa. Ekspor ulang cookies YouTube, lalu simpan.
+  kedaluwarsa, atau `yt-dlp` perlu diperbarui. Jalankan `run.bat --update` untuk
+  memperbarui `yt-dlp`, atau ekspor ulang cookies YouTube lalu simpan.
 - **"Video ini tidak punya subtitle"** — pilih video dengan caption, atau aktifkan
   auto-caption di YouTube.
 - **AI error 401/404** — cek base URL (harus berakhiran `/v1` untuk OpenAI), API key,
@@ -260,7 +262,7 @@ menyertakan biner pihak ketiga (FFmpeg GPL-3.0 dan Deno MIT) — lihat [THIRD_PA
 | Auto-update | Cek server + download | Tidak ada |
 | Durasi klip | 58–120 detik | Bisa diatur 5–600 detik |
 | Gaya subtitle | — | 14 gaya, termasuk bilingual |
-| Tests | Tidak diketahui | 128 unit/integration test |
+| Tests | Tidak diketahui | 145 unit/integration test |
 
 ## Batasan yang jujur
 
@@ -283,4 +285,4 @@ menyertakan biner pihak ketiga (FFmpeg GPL-3.0 dan Deno MIT) — lihat [THIRD_PA
 
 ---
 
-AIKLIPYT v1.0.6 · MIT · lokal, tanpa telemetri.
+AIKLIPYT v1.0.7 · MIT · lokal, tanpa telemetri.

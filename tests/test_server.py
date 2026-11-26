@@ -372,6 +372,7 @@ class SettingsValidationTests(unittest.TestCase):
         self.assertIn("Permissions-Policy", sent)
         self.assertIn("Content-Security-Policy", sent)
         self.assertIn("https://*.ytimg.com", sent["Content-Security-Policy"])
+        self.assertIn("frame-src https://www.youtube-nocookie.com", sent["Content-Security-Policy"])
 
     def test_cleanup_old_watermark_sweeps_orphans(self):
         from unittest import mock
@@ -383,10 +384,10 @@ class SettingsValidationTests(unittest.TestCase):
             keep.write_bytes(b"keep")
             orphan.write_bytes(b"orphan")
             with mock.patch("server.WATERMARKS", wm_dir):
-                _cleanup_old_watermark("", str(keep))
+                _cleanup_old_watermark(str(keep))
                 self.assertTrue(keep.exists())
                 self.assertFalse(orphan.exists())
-                _cleanup_old_watermark(str(keep), "")
+                _cleanup_old_watermark("")
                 self.assertFalse(keep.exists())
 
 
@@ -449,6 +450,28 @@ class HttpServerIntegrationTests(unittest.TestCase):
                     self.assertTrue(state_data["ok"])
                     self.assertTrue(state_data["config"]["ai"]["keyUnreadable"])
                     self.assertEqual(state_data["activeJob"]["id"], "job123")
+                    self.assertEqual(state_data["languages"][0][0], "auto")
+
+                    req_busy_hl = urllib.request.Request(
+                        f"{base}/api/highlights",
+                        data=json.dumps({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Origin": base},
+                        method="POST",
+                    )
+                    with self.assertRaises(urllib.error.HTTPError) as busy_err:
+                        urllib.request.urlopen(req_busy_hl)
+                    self.assertEqual(busy_err.exception.code, 409)
+                    busy_err.exception.close()
+
+                    req_cancel = urllib.request.Request(
+                        f"{base}/api/jobs/cancel",
+                        data=json.dumps({"jobId": "job123"}).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "Origin": base},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_cancel) as resp:
+                        cancelled_data = json.loads(resp.read().decode("utf-8"))
+                    self.assertEqual(cancelled_data["job"]["status"], "cancelled")
 
                     req_no_origin = urllib.request.Request(
                         f"{base}/api/settings",
@@ -485,6 +508,22 @@ class HttpServerIntegrationTests(unittest.TestCase):
             finally:
                 http_server.shutdown()
                 http_server.server_close()
+
+    def test_web_ui_exposes_cancel_sticky_settings_edit_and_library_caption_actions(self):
+        web_dir = Path(__file__).resolve().parent.parent / "web"
+        html = (web_dir / "index.html").read_text(encoding="utf-8")
+        js = (web_dir / "app.js").read_text(encoding="utf-8")
+        css = (web_dir / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('id="cancelJobBtn"', html)
+        self.assertIn("/api/jobs/cancel", js)
+        self.assertIn("settingsDirty", js)
+        self.assertIn("data-copy-clip", js)
+        self.assertIn("overrides", js)
+        self.assertIn("#view-settings .page-head", css)
+        self.assertIn('id="previewEmbed"', html)
+        self.assertIn('id="closeEmbedBtn"', html)
+        self.assertIn("data-preview-clip", js)
+        self.assertIn("youtube-nocookie.com/embed/", js)
 
 
 if __name__ == "__main__":

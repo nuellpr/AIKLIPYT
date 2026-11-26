@@ -1,6 +1,8 @@
 """Background jobs: find highlights, then render selected clips."""
 from __future__ import annotations
 
+import atexit
+from concurrent.futures import Future, ThreadPoolExecutor
 import copy
 import json
 import shutil
@@ -9,6 +11,7 @@ import time
 import traceback
 import uuid
 from pathlib import Path
+from typing import Any
 
 from . import session as session_store
 from .assets import ffmpeg_path
@@ -21,11 +24,17 @@ from .ytdlp import YtdlpError, download_section, download_subtitle, pick_subtitl
 
 JOBS: dict[str, dict] = {}
 _ACTIVE_SESSIONS: set[str] = set()
+_CANCEL_EVENTS: dict[str, threading.Event] = {}
+_JOB_KILLERS: dict[str, Any] = {}
 _lock = threading.RLock()
 TMP = DATA / "tmp"
 
 
 class SessionBusyError(RuntimeError):
+    pass
+
+
+class JobCancelledError(RuntimeError):
     pass
 
 
@@ -87,16 +96,106 @@ def _new_job(kind: str) -> dict:
     }
     with _lock:
         JOBS[job_id] = job
+        _CANCEL_EVENTS[job_id] = threading.Event()
         if len(JOBS) > 100:
             oldest = sorted(JOBS.values(), key=lambda item: item["createdAt"])[: len(JOBS) - 100]
             for old in oldest:
                 if old["status"] != "running":
                     JOBS.pop(old["id"], None)
+                    _CANCEL_EVENTS.pop(old["id"], None)
+                    _JOB_KILLERS.pop(old["id"], None)
     return job
+
+
+def _set_killer(job_id: str, slot: str, killer) -> None:
+    with _lock:
+        bucket = _JOB_KILLERS.get(job_id)
+        if killer is None:
+            if isinstance(bucket, dict):
+                bucket.pop(slot, None)
+                if not bucket:
+                    _JOB_KILLERS.pop(job_id, None)
+            elif slot == "main":
+                _JOB_KILLERS.pop(job_id, None)
+        else:
+            if not isinstance(bucket, dict):
+                bucket = {"main": bucket} if callable(bucket) else {}
+                _JOB_KILLERS[job_id] = bucket
+            bucket[slot] = killer
+
+
+def _register_killer(job_id: str, killer) -> None:
+    _set_killer(job_id, "main", killer)
+
+
+def _add_killer(job_id: str, killer):
+    slot = f"extra_{uuid.uuid4().hex[:8]}"
+    _set_killer(job_id, slot, killer)
+    return lambda: _set_killer(job_id, slot, None)
+
+
+def _clear_killers(job_id: str) -> None:
+    with _lock:
+        _JOB_KILLERS.pop(job_id, None)
+
+
+def _cancel_event(job_id: str) -> threading.Event:
+    with _lock:
+        return _CANCEL_EVENTS.setdefault(job_id, threading.Event())
+
+
+def _check_cancel(job_id: str) -> None:
+    with _lock:
+        job = JOBS.get(job_id)
+        ev = _CANCEL_EVENTS.get(job_id)
+        cancelled = bool((ev and ev.is_set()) or (job and job.get("status") == "cancelled"))
+    if cancelled:
+        raise JobCancelledError("Dibatalkan")
+
+
+def cancel(job_id: str) -> dict:
+    with _lock:
+        job = JOBS.get(job_id)
+        if not job:
+            raise KeyError("Job not found")
+        ev = _CANCEL_EVENTS.setdefault(job_id, threading.Event())
+        ev.set()
+        raw_killers = _JOB_KILLERS.pop(job_id, None)
+        if isinstance(raw_killers, dict):
+            killers = list(raw_killers.values())
+        elif callable(raw_killers):
+            killers = [raw_killers]
+        else:
+            killers = []
+        if job["status"] == "running":
+            job["status"] = "cancelled"
+            job["message"] = "Dibatalkan"
+            job["log"] = (job["log"] + [f"{_now()}  Dibatalkan oleh pengguna"])[-300:]
+    for killer in killers:
+        try:
+            killer()
+        except Exception:  # noqa: BLE001
+            pass
+    return get(job_id)
+
+
+def _shutdown_active_jobs() -> None:
+    with _lock:
+        running_ids = [jid for jid, job in JOBS.items() if job.get("status") == "running"]
+    for jid in running_ids:
+        try:
+            cancel(jid)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+atexit.register(_shutdown_active_jobs)
 
 
 def _update(job: dict, **fields) -> None:
     with _lock:
+        if job.get("status") == "cancelled":
+            return
         job.update(fields)
 
 
@@ -126,6 +225,9 @@ def _cookies_path() -> Path:
 
 
 def _fail(job: dict, message: str) -> None:
+    with _lock:
+        if job.get("status") == "cancelled":
+            return
     _log(job, message)
     _update(job, status="error", error=message, message="Failed")
 
@@ -135,8 +237,10 @@ def _highlight_worker(job: dict, params: dict) -> None:
     workdir = TMP / job["id"]
     try:
         workdir.mkdir(parents=True, exist_ok=True)
+        _check_cancel(job["id"])
         _update(job, message="Reading video info", progress=4)
         info = video_info(params["url"], str(_cookies_path()) if _cookies_path().is_file() else None)
+        _check_cancel(job["id"])
         duration = float(info.get("duration") or 0)
         _log(job, f"Video: {info.get('title', '')} ({int(duration)}s)")
 
@@ -153,12 +257,15 @@ def _highlight_worker(job: dict, params: dict) -> None:
             str(_cookies_path()) if _cookies_path().is_file() else None,
             workdir,
         )
+        _check_cancel(job["id"])
         _update(job, message="Parsing transcript", progress=22)
         cues, words = parse_subtitle(subtitle_path)
         if not words:
             raise JobError("Subtitle ditemukan tapi tidak berisi teks yang bisa dibaca.")
         text = transcript(cues, words)
         _log(job, f"Transcript: {len(words)} words, {len(text)} chars")
+        if "[transcript truncated]" in text:
+            _log(job, "Transkrip sangat panjang; diringkas dari bagian awal, tengah, dan akhir.")
 
         _update(job, message="AI is finding highlights (this can take a minute)", progress=30)
         direction = params.get("direction", "")
@@ -181,11 +288,13 @@ def _highlight_worker(job: dict, params: dict) -> None:
         key = api_key(config)
         model = config["ai"]["model"]
         content, usage = chat(base_url, key, model, messages)
+        _check_cancel(job["id"])
         _log(job, f"AI responded ({len(content)} chars)")
         items = extract_clips(content)
         highlights = select_clips(items, requested, duration, min_seconds, max_seconds)
         attempts = 0
         while len(highlights) < requested and attempts < 2:
+            _check_cancel(job["id"])
             missing = requested - len(highlights)
             _log(job, f"AI returned {len(highlights)}/{requested} valid clips; requesting {missing} more")
             _update(job, message=f"AI is finding {missing} more highlights", progress=35 + attempts * 5)
@@ -223,7 +332,14 @@ def _highlight_worker(job: dict, params: dict) -> None:
                 "AI tidak menghasilkan klip yang valid. Coba naikkan durasi maksimum atau ganti model."
             )
         result = session_store.create(
-            params["url"], info, choice, words, cues, text, highlights, {"model": config["ai"]["model"], "usage": usage}
+            params["url"],
+            info,
+            choice,
+            words,
+            text,
+            highlights,
+            {"model": config["ai"]["model"], "usage": usage},
+            output_language=output_language,
         )
         _update(
             job,
@@ -241,17 +357,25 @@ def _highlight_worker(job: dict, params: dict) -> None:
             },
         )
         _log(job, f"Saved session {result['id']} with {len(highlights)} highlights")
+    except JobCancelledError:
+        pass
     except (JobError, AIError, YtdlpError, ValueError) as exc:
         _fail(job, str(exc))
     except Exception as exc:  # noqa: BLE001
         _log(job, traceback.format_exc(limit=3))
         _fail(job, f"Unexpected error: {exc}")
     finally:
+        _register_killer(job["id"], None)
+        with _lock:
+            _CANCEL_EVENTS.pop(job["id"], None)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
 def start_highlights(params: dict) -> str:
-    job = _new_job("highlights")
+    with _lock:
+        if active_job() is not None:
+            raise SessionBusyError("Masih ada proses yang sedang berjalan. Tunggu atau batalkan dulu.")
+        job = _new_job("highlights")
     thread = threading.Thread(target=_highlight_worker, args=(job, params), daemon=True)
     thread.start()
     return job["id"]
@@ -263,7 +387,10 @@ def _render_worker(job: dict, params: dict) -> None:
     render_opts.update(params.get("render") or {})
     workdir = TMP / job["id"]
     errors: list[str] = []
+    cancel_ev = _cancel_event(job["id"])
     try:
+        if isinstance(params.get("overrides"), dict) and params["overrides"]:
+            session_store.update_highlights(params["sessionId"], params["overrides"])
         session = session_store.load(params["sessionId"])
         stored_words = [Word(item["word"], float(item["start"]), float(item["end"])) for item in session_store.words(params["sessionId"])]
         highlights = session.get("highlights") or []
@@ -290,6 +417,10 @@ def _render_worker(job: dict, params: dict) -> None:
         padding = float(config["clip"].get("padding") or 0)
         total = len(indices)
         overwrite = bool(params.get("overwrite"))
+        max_height = int(render_opts.get("maxHeight") or 1080)
+        is_smart_fill = bool(render_opts.get("portrait", True)) and render_opts.get("background", "black") == "fill"
+
+        plan: list[tuple[int, int, dict, float, float, Path, bool]] = []
         for position, index in enumerate(indices):
             clip = highlights[index]
             start = max(0.0, float(clip["start"]) - padding)
@@ -297,133 +428,190 @@ def _render_worker(job: dict, params: dict) -> None:
             if session.get("duration"):
                 end = min(float(session["duration"]), end)
             out = output_folder / f"clip_{index + 1:02d}.mp4"
-            if out.exists() and out.stat().st_size > 1000 and not overwrite:
-                _log(job, f"Clip {index + 1} already exists, skipping")
-                prev = by_index.get(index) or {}
-                by_index[index] = {
-                    "index": index,
-                    "file": out.name,
-                    "title": clip.get("title", "") or prev.get("title", ""),
-                    "description": clip.get("description", "") or prev.get("description", ""),
-                    "hook": clip.get("hook_text", "") or prev.get("hook", ""),
-                    "start": clip.get("start") if clip.get("start") is not None else prev.get("start"),
-                    "end": clip.get("end") if clip.get("end") is not None else prev.get("end"),
-                    "duration": prev.get("duration") or round(end - start, 2),
-                }
-                _update(job, progress=(position + 1) / total * 100)
-                continue
-            job_dir = workdir / f"clip_{index + 1}"
-            is_smart_fill = bool(render_opts.get("portrait", True)) and render_opts.get("background", "black") == "fill"
-            try:
-                _update(job, message=f"Downloading clip {position + 1}/{total} (#{index + 1})", progress=(position / total) * 100)
-                _log(job, f"Clip {index + 1}: {clip.get('start')}s - {clip.get('end')}s")
-                section = download_section(
-                    session["url"],
-                    start,
-                    end,
-                    cookies,
-                    job_dir,
-                    on_line=lambda line, percent, p=position, i=index: (
+            skip = bool(out.exists() and out.stat().st_size > 1000 and not overwrite)
+            plan.append((position, index, clip, start, end, out, skip))
+
+        to_fetch = [(position, index, clip, start, end) for position, index, clip, start, end, _out, skip in plan if not skip]
+        queue_pos_by_index = {item[1]: q_idx for q_idx, item in enumerate(to_fetch)}
+        prefetched: dict[int, Future[Path]] = {}
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            def _fetch_clip(q_idx: int, is_prefetch: bool) -> Path:
+                p_pos, p_idx, _p_clip, p_start, p_end = to_fetch[q_idx]
+                slot = f"dl_{p_idx}"
+                clip_dir = workdir / f"clip_{p_idx + 1}"
+
+                def _on_line(line, percent, p=p_pos, i=p_idx, pf=is_prefetch):
+                    if percent is not None and not pf:
                         _update(job, message=f"Downloading clip {p + 1}/{total} (#{i + 1}) ({percent:.0f}%)")
-                        if percent is not None
-                        else None
-                    ),
-                    max_height=2160 if is_smart_fill else 1080,
-                )
-                reframe_shots = None
-                if is_smart_fill:
-                    _update(job, message="Menganalisis wajah & shot...")
-                    try:
-                        reframe_shots = analyze_reframe(section, ffmpeg, on_log=lambda m: _log(job, m))
-                    except Exception as exc:  # noqa: BLE001 - fallback to static crop cleanly
-                        _log(job, f"Auto-reframe gagal ({exc}); memakai center crop")
-                        reframe_shots = None
-                    if reframe_shots:
-                        _log(job, f"Auto-reframe: {len(reframe_shots)} segmen shot")
-                _update(
-                    job,
-                    message=f"Rendering clip {position + 1}/{total} (#{index + 1})",
-                    progress=(position / total) * 100 + 5 / total,
-                )
-                clip_words = slice_words(stored_words, start, end)
-                duration = end - start
 
-                translations = None
-                if render_opts.get("captions", True) and render_opts.get("captionStyle") == "bilingual" and clip_words:
-                    target = str(render_opts.get("outputLanguage") or config.get("outputLanguage") or "auto")
-                    if target == "auto":
-                        target = "en"
-                    target_name = LANGUAGES.get(target, target)
-                    from .secret import api_key
-
-                    error_detail: list[str] = []
-                    translations = _bilingual_translations(
-                        clip_words,
-                        target_name,
-                        config["ai"]["baseUrl"],
-                        api_key(config),
-                        config["ai"]["model"],
-                        on_error=lambda exc: error_detail.append(str(exc)),
+                try:
+                    return download_section(
+                        session["url"],
+                        p_start,
+                        p_end,
+                        cookies,
+                        clip_dir,
+                        on_line=_on_line,
+                        max_height=max_height,
+                        cancel_event=cancel_ev,
+                        on_process=lambda fn, s=slot: _set_killer(job["id"], s, fn),
                     )
-                    if translations:
-                        _log(job, f"Translated captions to {target_name}")
-                    else:
-                        reason = f" ({error_detail[0]})" if error_detail else ""
-                        _log(job, f"Translation unavailable{reason}; rendering single-layer captions")
+                finally:
+                    _set_killer(job["id"], slot, None)
 
-                def progress(percent: float, position=position) -> None:
-                    _update(job, progress=((position + percent / 100) / total) * 100)
+            def _ensure_submitted(q_idx: int, is_prefetch: bool) -> None:
+                if 0 <= q_idx < len(to_fetch) and q_idx not in prefetched and not cancel_ev.is_set():
+                    prefetched[q_idx] = pool.submit(_fetch_clip, q_idx, is_prefetch)
 
-                render_clip(
-                    section,
-                    out,
-                    clip_words,
-                    ffmpeg,
-                    duration,
-                    hook_text=clip.get("hook_text", "") if render_opts.get("hook", True) else "",
-                    credit=render_opts.get("credit", ""),
-                    hook_seconds=float(render_opts.get("hookSeconds", 3)),
-                    portrait=bool(render_opts.get("portrait", True)),
-                    background=render_opts.get("background", "black"),
-                    facecam_corner=render_opts.get("facecamCorner", "top-right"),
-                    reframe_shots=reframe_shots,
-                    captions=bool(render_opts.get("captions", True)),
-                    hook=bool(render_opts.get("hook", True)),
-                    watermark=render_opts.get("watermark", ""),
-                    caption_color=render_opts.get("captionColor", "#FFD700"),
-                    caption_style=render_opts.get("captionStyle", "highlight"),
-                    caption_font=render_opts.get("captionFont", "Arial Black"),
-                    caption_bold=bool(render_opts.get("captionBold", True)),
-                    caption_uppercase=bool(render_opts.get("captionUppercase", False)),
-                    hook_style=render_opts.get("hookStyle", "classic"),
-                    watermark_position=render_opts.get("watermarkPosition", "top-right"),
-                    credit_position=render_opts.get("creditPosition", "bottom-center"),
-                    logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),
-                    credit_opacity=float(render_opts.get("creditOpacity", 1.0)),
-                    translations=translations,
-                    on_progress=progress,
-                    on_log=lambda message: _log(job, message),
-                )
-                by_index[index] = {
-                    "index": index,
-                    "file": out.name,
-                    "title": clip.get("title", ""),
-                    "description": clip.get("description", ""),
-                    "hook": clip.get("hook_text", ""),
-                    "start": clip.get("start"),
-                    "end": clip.get("end"),
-                    "duration": round(duration, 2),
-                }
-                _log(job, f"Clip {index + 1} done: {out.name}")
-                _update(job, progress=(position + 1) / total * 100)
-            except (JobError, YtdlpError, RuntimeError, OSError) as exc:
-                if not (out.exists() and out.stat().st_size > 1000):
+            for position, index, clip, start, end, out, skip in plan:
+                _check_cancel(job["id"])
+                if skip:
+                    _log(job, f"Clip {index + 1} already exists, skipping")
+                    prev = by_index.get(index) or {}
+                    by_index[index] = {
+                        "index": index,
+                        "file": out.name,
+                        "title": clip.get("title", "") or prev.get("title", ""),
+                        "description": clip.get("description", "") or prev.get("description", ""),
+                        "hook": clip.get("hook_text", "") or prev.get("hook", ""),
+                        "start": clip.get("start") if clip.get("start") is not None else prev.get("start"),
+                        "end": clip.get("end") if clip.get("end") is not None else prev.get("end"),
+                        "duration": prev.get("duration") or round(end - start, 2),
+                    }
+                    _update(job, progress=(position + 1) / total * 100)
+                    continue
+                job_dir = workdir / f"clip_{index + 1}"
+                q_idx = queue_pos_by_index[index]
+                try:
+                    _update(job, message=f"Downloading clip {position + 1}/{total} (#{index + 1})", progress=(position / total) * 100)
+                    _log(job, f"Clip {index + 1}: {clip.get('start')}s - {clip.get('end')}s")
+                    _ensure_submitted(q_idx, is_prefetch=False)
+                    section = prefetched.pop(q_idx).result()
+                    _check_cancel(job["id"])
+                    # shortcut: single-clip lookahead keeps temp disk usage bounded to 2 clip sections
+                    _ensure_submitted(q_idx + 1, is_prefetch=True)
+                    reframe_shots = None
+                    if is_smart_fill:
+                        _update(job, message="Menganalisis wajah & shot...")
+                        try:
+                            reframe_shots = analyze_reframe(section, ffmpeg, on_log=lambda m: _log(job, m))
+                        except Exception as exc:  # noqa: BLE001 - fallback to static crop cleanly
+                            _log(job, f"Auto-reframe gagal ({exc}); memakai center crop")
+                            reframe_shots = None
+                        if reframe_shots:
+                            _log(job, f"Auto-reframe: {len(reframe_shots)} segmen shot")
+                    _update(
+                        job,
+                        message=f"Rendering clip {position + 1}/{total} (#{index + 1})",
+                        progress=(position / total) * 100 + 5 / total,
+                    )
+                    clip_words = slice_words(
+                        stored_words,
+                        start,
+                        end,
+                        clip_start=float(clip["start"]),
+                        clip_end=float(clip["end"]),
+                    )
+                    duration = end - start
+
+                    translations = None
+                    if render_opts.get("captions", True) and render_opts.get("captionStyle") == "bilingual" and clip_words:
+                        target = str(
+                            render_opts.get("outputLanguage")
+                            or session.get("outputLanguage")
+                            or config.get("outputLanguage")
+                            or "auto"
+                        )
+                        src_code = str((session.get("subtitle") or {}).get("code") or "").lower()
+                        if target == "auto":
+                            target = "id" if (src_code == "en" or src_code.startswith("en-")) else "en"
+                        target_name = LANGUAGES.get(target, target)
+                        from .secret import api_key
+
+                        error_detail: list[str] = []
+                        translations = _bilingual_translations(
+                            clip_words,
+                            target_name,
+                            config["ai"]["baseUrl"],
+                            api_key(config),
+                            config["ai"]["model"],
+                            on_error=lambda exc: error_detail.append(str(exc)),
+                        )
+                        if translations:
+                            _log(job, f"Translated captions to {target_name}")
+                        else:
+                            reason = f" ({error_detail[0]})" if error_detail else ""
+                            _log(job, f"Translation unavailable{reason}; rendering single-layer captions")
+
+                    def progress(percent: float, position=position) -> None:
+                        _update(job, progress=((position + percent / 100) / total) * 100)
+
+                    render_clip(
+                        section,
+                        out,
+                        clip_words,
+                        ffmpeg,
+                        duration,
+                        hook_text=clip.get("hook_text", "") if render_opts.get("hook", True) else "",
+                        credit=render_opts.get("credit", ""),
+                        hook_seconds=float(render_opts.get("hookSeconds", 3)),
+                        portrait=bool(render_opts.get("portrait", True)),
+                        background=render_opts.get("background", "black"),
+                        facecam_corner=render_opts.get("facecamCorner", "top-right"),
+                        reframe_shots=reframe_shots,
+                        captions=bool(render_opts.get("captions", True)),
+                        hook=bool(render_opts.get("hook", True)),
+                        watermark=render_opts.get("watermark", ""),
+                        caption_color=render_opts.get("captionColor", "#FFD700"),
+                        caption_style=render_opts.get("captionStyle", "highlight"),
+                        caption_font=render_opts.get("captionFont", "Arial Black"),
+                        caption_bold=bool(render_opts.get("captionBold", True)),
+                        caption_uppercase=bool(render_opts.get("captionUppercase", False)),
+                        hook_style=render_opts.get("hookStyle", "classic"),
+                        watermark_position=render_opts.get("watermarkPosition", "top-right"),
+                        credit_position=render_opts.get("creditPosition", "bottom-center"),
+                        logo_opacity=float(render_opts.get("watermarkOpacity", 0.9)),
+                        credit_opacity=float(render_opts.get("creditOpacity", 1.0)),
+                        translations=translations,
+                        on_progress=progress,
+                        on_log=lambda message: _log(job, message),
+                        cancel_event=cancel_ev,
+                        on_process=lambda fn: _register_killer(job["id"], fn),
+                    )
+                    by_index[index] = {
+                        "index": index,
+                        "file": out.name,
+                        "title": clip.get("title", ""),
+                        "description": clip.get("description", ""),
+                        "hook": clip.get("hook_text", ""),
+                        "start": clip.get("start"),
+                        "end": clip.get("end"),
+                        "duration": round(duration, 2),
+                    }
+                    session_store.write_clips(
+                        params["sessionId"],
+                        sorted(by_index.values(), key=lambda item: item["index"]),
+                    )
+                    _log(job, f"Clip {index + 1} done: {out.name}")
+                    _update(job, progress=(position + 1) / total * 100)
+                except JobCancelledError:
                     out.unlink(missing_ok=True)
-                    by_index.pop(index, None)
-                errors.append(f"Clip {index + 1}: {exc}")
-                _log(job, f"Clip {index + 1} failed: {exc}")
-            finally:
-                shutil.rmtree(job_dir, ignore_errors=True)
+                    raise
+                except (JobError, YtdlpError, RuntimeError, OSError) as exc:
+                    if cancel_ev.is_set():
+                        out.unlink(missing_ok=True)
+                        raise JobCancelledError("Dibatalkan") from exc
+                    if not (out.exists() and out.stat().st_size > 1000):
+                        out.unlink(missing_ok=True)
+                        by_index.pop(index, None)
+                    errors.append(f"Clip {index + 1}: {exc}")
+                    _log(job, f"Clip {index + 1} failed: {exc}")
+                finally:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+        _check_cancel(job["id"])
         session_store.write_clips(params["sessionId"], sorted(by_index.values(), key=lambda item: item["index"]))
         if errors and len(errors) == total:
             raise JobError("Semua klip gagal dirender. " + errors[0])
@@ -439,14 +627,18 @@ def _render_worker(job: dict, params: dict) -> None:
                 "errors": errors,
             },
         )
+    except JobCancelledError:
+        pass
     except (JobError, RuntimeError, ValueError) as exc:
         _fail(job, str(exc))
     except Exception as exc:  # noqa: BLE001
         _log(job, traceback.format_exc(limit=3))
         _fail(job, f"Unexpected error: {exc}")
     finally:
+        _clear_killers(job["id"])
         with _lock:
             _ACTIVE_SESSIONS.discard(params.get("sessionId", ""))
+            _CANCEL_EVENTS.pop(job["id"], None)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
@@ -455,13 +647,17 @@ def start_render(params: dict) -> str:
     with _lock:
         if session_id in _ACTIVE_SESSIONS:
             raise SessionBusyError("Sesi ini sedang dirender. Tunggu render selesai.")
+        if active_job() is not None:
+            raise SessionBusyError("Masih ada proses yang sedang berjalan. Tunggu atau batalkan dulu.")
         _ACTIVE_SESSIONS.add(session_id)
-    try:
         job = _new_job("render")
+    try:
         thread = threading.Thread(target=_render_worker, args=(job, params), daemon=True)
         thread.start()
         return job["id"]
     except Exception:
         with _lock:
             _ACTIVE_SESSIONS.discard(session_id)
+            JOBS.pop(job["id"], None)
+            _CANCEL_EVENTS.pop(job["id"], None)
         raise

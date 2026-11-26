@@ -6,8 +6,8 @@ Pembaruan keamanan hanya diberikan untuk rilis minor/patch terbaru.
 
 | Versi | Didukung |
 |---|---|
-| `1.0.6` | Ya |
-| `< 1.0.6` | Tidak — silakan perbarui ke versi terbaru |
+| `1.0.7` | Ya |
+| `< 1.0.7` | Tidak — silakan perbarui ke versi terbaru |
 
 ## Model Keamanan AIKLIPYT
 

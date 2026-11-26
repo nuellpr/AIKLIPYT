@@ -50,6 +50,13 @@ class ExtractTests(unittest.TestCase):
         fenced = 'Sure, here is the JSON:\n```json\n{"clips":[{"start_time":10,"end_time":45,"title":"fenced"}]}\n```'
         self.assertEqual([item["title"] for item in extract_clips(fenced)], ["fenced"])
 
+    def test_reasoning_think_block_with_example_fence_still_extracts_final_clips(self):
+        text = (
+            "<think>\nSchema example:\n```json\n{\"example\": true}\n```\nDone thinking.\n</think>\n"
+            '```json\n{"clips":[{"start_time":12,"end_time":42,"title":"final answer"}]}\n```'
+        )
+        self.assertEqual([item["title"] for item in extract_clips(text)], ["final answer"])
+
 
 class ClipTests(unittest.TestCase):
     def test_coerce_clamps_and_parses(self):
@@ -312,6 +319,45 @@ class ExactCountPromptTests(unittest.TestCase):
         extra = [{"start": 100, "end": 130, "virality_score": 8}]
         clips = select_clips(first + extra, 2, 600, 20, 120)
         self.assertEqual(len(clips), 2)
+
+    def test_chat_retries_without_temperature_when_model_rejects_it(self):
+        bodies = []
+
+        class ReasoningHandler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                length = int(self.headers.get("Content-Length") or 0)
+                payload = json.loads(self.rfile.read(length))
+                bodies.append(payload)
+                if "temperature" in payload:
+                    err = b'{"error":{"message":"Unsupported value: \'temperature\' does not support 0.6"}}'
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(err)))
+                    self.end_headers()
+                    self.wfile.write(err)
+                    return
+                ok = b'{"choices":[{"message":{"content":"{\\"clips\\":[]}"}}],"usage":{"total_tokens":10}}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(ok)))
+                self.end_headers()
+                self.wfile.write(ok)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ReasoningHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            content, _ = chat(f"http://127.0.0.1:{server.server_address[1]}/v1", "sk-test", "o3-mini", [{"role": "user", "content": "hi"}])
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(len(bodies), 2)
+        self.assertIn("temperature", bodies[0])
+        self.assertNotIn("temperature", bodies[1])
+        self.assertIn("clips", content)
 
 
 if __name__ == "__main__":

@@ -22,11 +22,12 @@ from core import models as model_catalog
 from core import pipeline, session as session_store
 from core.assets import deno_path, ffmpeg_path
 from core.config import DATA, DEFAULTS, ROOT, ensure_dirs, load, save
+from core.highlights import LANGUAGE_OPTIONS
 from core.render import BACKGROUND_MODES, CAPTION_FONTS, CAPTION_STYLES, FACECAM_CORNERS, HOOK_STYLES
 from core.secret import api_key, protect
 
 WEB = ROOT / "web"
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 BACKGROUNDS = set(BACKGROUND_MODES)
 POSITIONS = {
     "top-left",
@@ -75,6 +76,7 @@ def _state() -> dict:
         "version": VERSION,
         "config": _public_config(),
         "cookies": cookie_store.status(COOKIES),
+        "languages": [list(item) for item in LANGUAGE_OPTIONS],
         "assets": {
             "ffmpeg": ffmpeg_path(),
             "deno": deno_path(),
@@ -143,7 +145,7 @@ def _model_auth(body: dict, config: dict) -> tuple[str, str]:
     return base, api_key(config) or ""
 
 
-def _cleanup_old_watermark(_old_path: str, new_path: str) -> None:
+def _cleanup_old_watermark(new_path: str) -> None:
     try:
         root = WATERMARKS.resolve()
         if not root.is_dir():
@@ -158,7 +160,6 @@ def _cleanup_old_watermark(_old_path: str, new_path: str) -> None:
 
 def _apply_settings(body: dict) -> dict:
     config = load()
-    old_watermark = str(config["render"].get("watermark") or "")
     ai = body.get("ai")
     if isinstance(ai, dict):
         ai = dict(ai)
@@ -228,7 +229,7 @@ def _apply_settings(body: dict) -> dict:
             value = default
         config["render"][key] = max(0.0, min(1.0, value))
     saved = save(config)
-    _cleanup_old_watermark(old_watermark, str(saved["render"].get("watermark") or ""))
+    _cleanup_old_watermark(str(saved["render"].get("watermark") or ""))
     return saved
 
 
@@ -259,7 +260,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header(
                 "Content-Security-Policy",
                 "default-src 'self'; img-src 'self' https://*.ytimg.com data: blob:; "
-                "media-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; "
+                "media-src 'self'; frame-src https://www.youtube-nocookie.com https://www.youtube.com; "
+                "style-src 'self' 'unsafe-inline'; script-src 'self'; "
                 "connect-src 'self'; frame-ancestors 'none'; object-src 'none'; "
                 "base-uri 'none'; form-action 'self'",
             )
@@ -489,16 +491,32 @@ class Handler(BaseHTTPRequestHandler):
                     num = max(1, min(20, int(body.get("numClips", 5))))
                 except (TypeError, ValueError):
                     num = 5
-                job_id = pipeline.start_highlights(
-                    {
-                        "url": url,
-                        "numClips": num,
-                        "subtitleLanguage": str(body.get("subtitleLanguage", "auto")),
-                        "direction": str(body.get("direction", ""))[:2000],
-                        "outputLanguage": str(body.get("outputLanguage", "auto")),
-                    }
-                )
+                try:
+                    job_id = pipeline.start_highlights(
+                        {
+                            "url": url,
+                            "numClips": num,
+                            "subtitleLanguage": str(body.get("subtitleLanguage", "auto")),
+                            "direction": str(body.get("direction", ""))[:2000],
+                            "outputLanguage": str(body.get("outputLanguage", "auto")),
+                        }
+                    )
+                except pipeline.SessionBusyError as exc:
+                    self._error(409, str(exc))
+                    return
                 self._json(200, {"ok": True, "jobId": job_id})
+                return
+            if path == "/api/jobs/cancel":
+                job_id = str(body.get("jobId", "")).strip()
+                if not job_id:
+                    self._error(400, "jobId wajib diisi")
+                    return
+                try:
+                    job = pipeline.cancel(job_id)
+                except KeyError as exc:
+                    self._error(404, str(exc))
+                    return
+                self._json(200, {"ok": True, "job": job})
                 return
             if path == "/api/render":
                 session_id = str(body.get("sessionId", ""))
@@ -510,12 +528,14 @@ class Handler(BaseHTTPRequestHandler):
                     indices = []
                 indices = [int(item) for item in indices if isinstance(item, (int, str)) and str(item).isdigit()]
                 indices = list(dict.fromkeys(indices))[:100]
+                overrides = body.get("overrides") if isinstance(body.get("overrides"), dict) else None
                 try:
                     job_id = pipeline.start_render(
                         {
                             "sessionId": session_id,
                             "indices": indices,
                             "overwrite": bool(body.get("overwrite")),
+                            "overrides": overrides,
                         }
                     )
                 except pipeline.SessionBusyError as exc:

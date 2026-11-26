@@ -59,6 +59,71 @@ class AssTests(unittest.TestCase):
         ass = build_ass([], "{evil\\pos(0,0)}", "", 1, 2)
         self.assertNotIn("{evil", ass)
         self.assertIn("(EVIL", ass)
+        path_ass = build_ass([Word(r"C:\folder", 0.2, 0.7), Word(r"a\Nb", 0.8, 1.4)])
+        self.assertIn(r"C:\folder", path_ass)
+        self.assertNotIn(r"C:\\folder", path_ass)
+        self.assertNotIn(r"a\Nb", path_ass)
+
+    def test_hook_avoids_covering_faces_in_split_and_facecam_modes(self):
+        words = [Word("halo", 0.2, 0.7)]
+        split_ass = build_ass(words, hook_text="HOOK SPLIT", background="split", portrait=True)
+        self.assertIn(r"\pos(540,960)", split_ass)
+        facecam_ass = build_ass(words, hook_text="HOOK CAM", background="facecam-top", portrait=True)
+        self.assertIn("Style: Hook,Arial Black,86,&H0000D7FF&,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,8,60,60,610,1", facecam_ass)
+
+    def test_retro_card_keeps_group_margin_stable_across_hook_end(self):
+        words = [Word("awal", 2.7, 2.9), Word("lanjut", 3.1, 3.5)]
+        ass = build_ass(
+            words,
+            hook_text="Retro hook",
+            hook_style="retro-card",
+            hook_seconds=3.0,
+            caption_style="bilingual",
+            translations=["start next"],
+        )
+        cap_lines = [r for r in ass.splitlines() if r.startswith("Dialogue: 0,") and ",Caption," in r]
+        self.assertEqual(len(cap_lines), 2)
+        self.assertTrue(all(",Caption,,0,0,600,," in line for line in cap_lines), cap_lines)
+
+    def test_hardware_encoder_not_blacklisted_when_cpu_also_fails(self):
+        from io import BytesIO
+        from unittest import mock
+        import core.render as rnd
+
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            src = work / "bad.mp4"
+            src.write_bytes(b"corrupt")
+            out = work / "clip_01.mp4"
+            tried = []
+
+            def fake_popen(cmd, **kwargs):
+                enc = cmd[cmd.index("-c:v") + 1]
+                tried.append(enc)
+
+                class FailProc:
+                    returncode = 1
+                    stdout = BytesIO(b"corrupt input\n")
+
+                    def wait(self, timeout=None):
+                        return 1
+
+                    def kill(self):
+                        pass
+
+                return FailProc()
+
+            with (
+                mock.patch.object(rnd, "detect_encoder", return_value="h264_nvenc"),
+                mock.patch.dict(rnd._ENCODER_STATUS, {}, clear=True),
+                mock.patch.object(rnd.subprocess, "Popen", side_effect=fake_popen),
+            ):
+                with self.assertRaises(RuntimeError):
+                    render_clip(src, out, [], "ffmpeg", 2.0)
+                tried.clear()
+                with self.assertRaises(RuntimeError):
+                    render_clip(src, out, [], "ffmpeg", 2.0)
+            self.assertEqual(tried[0], "h264_nvenc")
 
     def test_caption_color_and_styles(self):
         words = [Word("halo", 0.2, 0.7), Word("dunia", 0.8, 1.4)]
@@ -305,8 +370,52 @@ class AssTests(unittest.TestCase):
         chain = _portrait_chain("fill")
         self.assertEqual(
             chain,
-            "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920,unsharp=3:3:0.5:3:3:0.0",
+            "scale=1080:1920:force_original_aspect_ratio=increase:flags=bicubic,crop=1080:1920",
         )
+
+    def test_fast_qsv_fps_cap_and_duration_limit(self):
+        from io import BytesIO
+        from unittest import mock
+        import core.render as rnd
+
+        qsv_args = dict(rnd._HW_ENCODERS)["h264_qsv"]
+        self.assertIn("-preset", qsv_args)
+        self.assertIn("veryfast", qsv_args)
+        graph = _filter_complex(True, "fill", False, None, 0.9)
+        self.assertIn("fps=fps='min(30,source_fps)'", graph)
+
+        seen_cmd = []
+        with tempfile.TemporaryDirectory() as folder:
+            work = Path(folder)
+            src = work / "in.mp4"
+            src.write_bytes(b"in")
+            out = work / "clip_01.mp4"
+
+            def fake_popen(cmd, **kwargs):
+                seen_cmd.append(cmd)
+                tmp_out = Path(cmd[-1])
+                tmp_out.write_bytes(b"v" * 2000)
+
+                class OkProc:
+                    pid = 999
+                    returncode = 0
+                    stdout = BytesIO(b"")
+
+                    def wait(self, timeout=None):
+                        return 0
+
+                    def kill(self):
+                        pass
+
+                return OkProc()
+
+            with (
+                mock.patch.object(rnd, "detect_encoder", return_value=None),
+                mock.patch.object(rnd.subprocess, "Popen", side_effect=fake_popen),
+            ):
+                render_clip(src, out, [], "ffmpeg", 2.5)
+        self.assertIn("-t", seen_cmd[0])
+        self.assertEqual(seen_cmd[0][seen_cmd[0].index("-t") + 1], "2.500")
 
     def test_background_modes_and_portrait_chains(self):
         self.assertEqual(len(BACKGROUND_MODES), 8)

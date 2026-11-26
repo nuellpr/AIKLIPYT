@@ -2,6 +2,24 @@
 
 Semua perubahan penting pada AIKLIPYT.
 
+## [1.0.7] - 2026-11-26
+
+### Added
+- **Pemutar sampel YouTube pra-render (`▶ Putar sampel`)** pada kartu highlight di tab Buat: memutar potongan `Mulai`–`Selesai` langsung di panel Preview memakai `youtube-nocookie.com/embed` sebelum merender, mengikuti revisi detik potong secara real-time, dan otomatis berhenti saat ditutup (`Tutup sampel`), pindah tab, ganti URL, atau memulai job.
+- **Tombol `Batalkan` job aktif** (`/api/jobs/cancel`) untuk menghentikan proses `ffmpeg` maupun `yt-dlp` (termasuk unduhan latar belakang) secara instan.
+- **Edit cepat sebelum render & aksi Pustaka**: ubah detik `Mulai`, `Selesai`, serta `Hook pembuka` tiap highlight langsung sebelum render (`overrides`), tombol **Salin caption** + **Unduh MP4** + tampilan deskripsi klip di Pustaka, header Pengaturan *sticky* dengan simpan otomatis saat berpindah tab, dan flag `run.bat --update` untuk memperbarui `yt-dlp`.
+
+### Changed
+- **Akselerasi pipeline render (~2,1x lebih cepat)**: pemotongan `download_section` instan tanpa `--force-keyframes-at-cuts` (`-c copy`), default unduhan `1080p` H.264, *background prefetch* paralel 1 klip ke depan di `_render_worker` selagi klip sebelumnya dianalisis & dirender, `-preset veryfast` pada `h264_qsv`, batas `fps=fps='min(30,source_fps)'`, `flags=bicubic`, serta batas durasi `-t`.
+- Cakupan pengujian ditingkatkan menjadi **145 unit/integration test**.
+
+### Security
+- Menyesuaikan `Content-Security-Policy` agar hanya mengizinkan `frame-src https://www.youtube-nocookie.com https://www.youtube.com` untuk pratinjau sampel dengan tetap menjaga `frame-ancestors 'none'`, `script-src 'self'`, serta penjaga satu job aktif (`409 Conflict`).
+
+### Fixed
+- Deduplikasi *rolling cues* `.vtt` otomatis di `transcript()`, pemangkasan transkrip panjang per baris penuh dengan sampel bagian awal–tengah–akhir, serta penyaringan kata ketat pada rentang klip asli (`clip_start`/`clip_end`) di `slice_words`.
+- Prioritas `info["language"]` lalu bahasa Inggris pada pemilih subtitle `auto`, penyimpanan `outputLanguage` di sesi agar mode `bilingual` tidak menerjemahkan `en → en`, penanganan blok `<think>` multi-fence & retry tanpa `temperature` pada provider AI, *cooldown* sementara (bukan mematikan permanen) saat encoder GPU gagal, penyimpanan bertahap `clips.json` + pemulihan `clip_*.mp4` di `session.load`, posisi Hook aman pada mode `split`/`facecam-top`, optimasi ekspresi `crop` dinamis di `_reframe_chain`, deteksi pembicara aktif untuk 3+ wajah & pengukuran gerak bibir frame jarak pendek (~120 ms) di `core/reframe.py`, serta validasi Python ≥ 3.11 di `run.bat`.
+
 ## [1.0.6] - 2026-11-24
 
 ### Added

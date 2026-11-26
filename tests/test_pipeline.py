@@ -191,6 +191,221 @@ class WorkerIntegrationTests(unittest.TestCase):
             clips = json.loads((out_dir / "clips.json").read_text(encoding="utf-8"))
             self.assertEqual([c["index"] for c in clips], [0, 2])
 
+    def test_bilingual_uses_session_output_language_and_avoids_en_to_en_default(self):
+        import copy
+        import json
+        from unittest import mock
+        from core.config import DEFAULTS
+        from core import session as session_store
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sessions_dir = root / "sessions"
+            outputs_dir = root / "outputs"
+            tmp_dir = root / "tmp"
+            cfg = copy.deepcopy(DEFAULTS)
+            cfg["ai"]["baseUrl"] = "https://api.example/v1"
+            cfg["ai"]["model"] = "demo-model"
+            cfg["ai"]["apiKeyEnc"] = "env"
+            cfg["outputLanguage"] = "auto"
+            cfg["render"]["captionStyle"] = "bilingual"
+
+            sub_file = root / "sub.en.srt"
+            sub_file.write_text("1\n00:00:01,000 --> 00:00:04,000\nhello world\n", encoding="utf-8")
+            targets_seen = []
+
+            def fake_translate(lines, target, *a, **k):
+                targets_seen.append(target)
+                return ["halo dunia" for _ in lines]
+
+            def fake_render(section, out, *args, **kwargs):
+                out.write_bytes(b"mp4" * 500)
+                return out
+
+            with (
+                mock.patch.dict(pipeline.JOBS, {}, clear=True),
+                mock.patch.object(pipeline, "TMP", tmp_dir),
+                mock.patch.object(pipeline, "DATA", root),
+                mock.patch.object(pipeline, "load", return_value=cfg),
+                mock.patch("core.secret.unprotect", return_value="sk-test"),
+                mock.patch.object(pipeline, "ffmpeg_path", return_value="ffmpeg"),
+                mock.patch.object(session_store, "SESSIONS", sessions_dir),
+                mock.patch.object(session_store, "OUTPUTS", outputs_dir),
+                mock.patch.object(pipeline, "video_info", return_value={"id": "abc", "title": "Demo", "duration": 60}),
+                mock.patch.object(pipeline, "pick_subtitle", return_value={"kind": "auto", "code": "en-orig"}),
+                mock.patch.object(pipeline, "download_subtitle", return_value=sub_file),
+                mock.patch.object(pipeline, "chat", return_value=('{"clips":[{"start":0,"end":25,"title":"One"}]}', {})),
+                mock.patch.object(pipeline, "download_section", return_value=root / "sec.mp4"),
+                mock.patch.object(pipeline, "translate_groups", side_effect=fake_translate),
+                mock.patch.object(pipeline, "render_clip", side_effect=fake_render),
+            ):
+                h_job = pipeline._new_job("highlights")
+                pipeline._highlight_worker(
+                    h_job,
+                    {"url": "https://www.youtube.com/watch?v=abc", "numClips": 1, "outputLanguage": "id"},
+                )
+                sid_id = h_job["result"]["sessionId"]
+                r_job = pipeline._new_job("render")
+                pipeline._render_worker(r_job, {"sessionId": sid_id, "indices": [0], "overwrite": True})
+
+                h_job_auto = pipeline._new_job("highlights")
+                pipeline._highlight_worker(
+                    h_job_auto,
+                    {"url": "https://www.youtube.com/watch?v=abc", "numClips": 1, "outputLanguage": "auto"},
+                )
+                sid_auto = h_job_auto["result"]["sessionId"]
+                r_job_auto = pipeline._new_job("render")
+                pipeline._render_worker(r_job_auto, {"sessionId": sid_auto, "indices": [0], "overwrite": True})
+
+            self.assertEqual(targets_seen, ["Indonesian", "Indonesian"])
+
+    def test_cancel_stops_running_job_and_rejects_parallel_jobs(self):
+        from unittest import mock
+
+        killed = []
+        with mock.patch.dict(pipeline.JOBS, {}, clear=True):
+            job = pipeline._new_job("render")
+            pipeline._register_killer(job["id"], lambda: killed.append("ffmpeg"))
+            pipeline._add_killer(job["id"], lambda: killed.append("ytdlp_prefetch"))
+            with self.assertRaises(SessionBusyError):
+                pipeline.start_highlights({"url": "https://www.youtube.com/watch?v=abc", "numClips": 1})
+            cancelled = pipeline.cancel(job["id"])
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertCountEqual(killed, ["ffmpeg", "ytdlp_prefetch"])
+            self.assertIsNone(pipeline.active_job())
+
+    def test_render_worker_applies_highlight_overrides(self):
+        import copy
+        import json
+        from unittest import mock
+        from core.config import DEFAULTS
+        from core import session as session_store
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sessions_dir = root / "sessions"
+            outputs_dir = root / "outputs"
+            tmp_dir = root / "tmp"
+            sid = "20260101_000000_edit"
+            (sessions_dir / sid).mkdir(parents=True)
+            (sessions_dir / sid / "words.json").write_text("[]", encoding="utf-8")
+            (sessions_dir / sid / "session.json").write_text(
+                json.dumps({
+                    "id": sid,
+                    "url": "https://www.youtube.com/watch?v=abc",
+                    "duration": 120,
+                    "highlights": [{"start": 10, "end": 30, "title": "Old", "hook_text": "Old hook"}],
+                }),
+                encoding="utf-8",
+            )
+            seen = {}
+
+            def fake_download(url, start, end, *a, **kw):
+                seen["range"] = (start, end)
+                return root / "sec.mp4"
+
+            def fake_render(section, out, *args, **kwargs):
+                seen["hook_text"] = kwargs.get("hook_text")
+                out.write_bytes(b"mp4" * 500)
+                return out
+
+            cfg = copy.deepcopy(DEFAULTS)
+            cfg["clip"]["padding"] = 0.0
+            with (
+                mock.patch.dict(pipeline.JOBS, {}, clear=True),
+                mock.patch.object(pipeline, "TMP", tmp_dir),
+                mock.patch.object(pipeline, "DATA", root),
+                mock.patch.object(pipeline, "load", return_value=cfg),
+                mock.patch.object(pipeline, "ffmpeg_path", return_value="ffmpeg"),
+                mock.patch.object(session_store, "SESSIONS", sessions_dir),
+                mock.patch.object(session_store, "OUTPUTS", outputs_dir),
+                mock.patch.object(pipeline, "download_section", side_effect=fake_download),
+                mock.patch.object(pipeline, "render_clip", side_effect=fake_render),
+            ):
+                job = pipeline._new_job("render")
+                pipeline._render_worker(
+                    job,
+                    {
+                        "sessionId": sid,
+                        "indices": [0],
+                        "overwrite": True,
+                        "overrides": {"0": {"start": 15.5, "end": 40.0, "hook_text": "Hook Baru"}},
+                    },
+                )
+            self.assertEqual(job["status"], "done")
+            self.assertEqual(seen["range"], (15.5, 40.0))
+            self.assertEqual(seen["hook_text"], "Hook Baru")
+            updated_session = json.loads((sessions_dir / sid / "session.json").read_text(encoding="utf-8"))
+            self.assertEqual(updated_session["highlights"][0]["hook_text"], "Hook Baru")
+
+    def test_render_worker_prefetches_next_clip_and_uses_1080p_default(self):
+        import copy
+        import json
+        import threading
+        from unittest import mock
+        from core.config import DEFAULTS
+        from core import session as session_store
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            sessions_dir = root / "sessions"
+            outputs_dir = root / "outputs"
+            tmp_dir = root / "tmp"
+            sid = "20260101_000000_prefetch"
+            (sessions_dir / sid).mkdir(parents=True)
+            (sessions_dir / sid / "words.json").write_text("[]", encoding="utf-8")
+            (sessions_dir / sid / "session.json").write_text(
+                json.dumps({
+                    "id": sid,
+                    "url": "https://www.youtube.com/watch?v=abc",
+                    "duration": 120,
+                    "highlights": [
+                        {"start": 0, "end": 20, "title": "First"},
+                        {"start": 40, "end": 60, "title": "Second"},
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            clip2_started = threading.Event()
+            max_heights = []
+            overlapped = []
+
+            def fake_download(url, start, end, cookies, workdir, **kwargs):
+                max_heights.append(kwargs.get("max_height"))
+                workdir.mkdir(parents=True, exist_ok=True)
+                sec = workdir / "section.mp4"
+                sec.write_bytes(b"sec")
+                if start >= 30:
+                    clip2_started.set()
+                return sec
+
+            def fake_render(section, out, *args, **kwargs):
+                if out.name == "clip_01.mp4":
+                    overlapped.append(clip2_started.wait(timeout=1.5))
+                out.write_bytes(b"mp4" * 500)
+                return out
+
+            cfg = copy.deepcopy(DEFAULTS)
+            cfg["render"]["background"] = "fill"
+            with (
+                mock.patch.dict(pipeline.JOBS, {}, clear=True),
+                mock.patch.object(pipeline, "TMP", tmp_dir),
+                mock.patch.object(pipeline, "DATA", root),
+                mock.patch.object(pipeline, "load", return_value=cfg),
+                mock.patch.object(pipeline, "ffmpeg_path", return_value="ffmpeg"),
+                mock.patch.object(session_store, "SESSIONS", sessions_dir),
+                mock.patch.object(session_store, "OUTPUTS", outputs_dir),
+                mock.patch.object(pipeline, "analyze_reframe", return_value=None),
+                mock.patch.object(pipeline, "download_section", side_effect=fake_download),
+                mock.patch.object(pipeline, "render_clip", side_effect=fake_render),
+            ):
+                job = pipeline._new_job("render")
+                pipeline._render_worker(job, {"sessionId": sid, "indices": [0, 1], "overwrite": True})
+
+            self.assertEqual(job["status"], "done")
+            self.assertEqual(overlapped, [True])
+            self.assertEqual(max_heights, [1080, 1080])
+
 
 if __name__ == "__main__":
     unittest.main()
